@@ -4,6 +4,10 @@ Local M4A-to-text conversion using your own CPU or GPU. The extracted **M4A Scri
 
 The source lives in [`m4a-scribe/`](m4a-scribe/). Start with its [setup and usage guide](m4a-scribe/README.md).
 
+![Native GTK desktop with Laptop, Mid, and High presets](docs/gtk-preview.png)
+
+Actual GTK window from the [automated UI check](https://github.com/QSOLKCB/M4A2TXT/actions/runs/41537925273), with example audio. This shows the compact layout and a completed fixture job; it is not a GPU performance result.
+
 ## Get started
 
 From the repository root:
