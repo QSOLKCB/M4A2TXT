@@ -10,6 +10,8 @@ Actual GTK window from the [automated UI check](https://github.com/QSOLKCB/M4A2T
 
 ## Get started
 
+Download the [tested Linux package](packages/README.md), extract it, and open a terminal in the extracted folder.
+
 From the repository root, or the top of an extracted [Linux package](PACKAGING.md):
 
 ```sh
