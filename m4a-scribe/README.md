@@ -2,7 +2,7 @@
 
 **Local audio in. Plain text out.** An Ubuntu-first desktop app and batch CLI for transcribing NotebookLM Audio Overview exports and other audio files with Whisper.
 
-Version: **0.2.0-preview**. This is a source starter, not a prebuilt desktop release. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
+Version: **0.2.0-preview**. The Linux package includes an executable `./m4a2txt` launcher at its top level. It uses native system dependencies and builds its engine on first-time setup; it is not a self-contained binary. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
 
 ## What it does
 

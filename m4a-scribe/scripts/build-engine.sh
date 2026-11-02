@@ -1,5 +1,5 @@
 #!/bin/sh
-# Explicit setup command. This is never called by the transcription app.
+# Explicit setup command, invoked manually or by the desktop's Set up button.
 set -eu
 mode=${1:-cpu}
 case "$mode" in cpu|cuda) ;; *) echo 'Usage: scripts/build-engine.sh cpu|cuda' >&2; exit 2 ;; esac

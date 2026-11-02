@@ -10,19 +10,15 @@ Actual GTK window from the [automated UI check](https://github.com/QSOLKCB/M4A2T
 
 ## Get started
 
-From the repository root:
+From the repository root, or the top of an extracted [Linux package](PACKAGING.md):
 
 ```sh
-cd m4a-scribe
-```
-
-Follow the [Ubuntu setup instructions](m4a-scribe/README.md#ubuntu-setup) to install the GTK system packages once. Then launch:
-
-```sh
-sh run-scribe.sh
+./m4a2txt
 ```
 
 Select **Laptop**, **Mid**, or **High**, use the clearly labelled one-time setup button if needed, and drop audio files onto the window.
+
+On Ubuntu 24.04+, run `./install-deps.sh` once if the native dependencies are missing. `./m4a2txt --check` checks your local setup without downloading anything. See [package instructions](PACKAGING.md) for extraction, verification, and rebuilding the deterministic archive. The package uses your operating system's Python, GTK and FFmpeg; it installs the selected model and builds its engine during explicit first-time setup.
 
 After setup, transcription runs locally without a cloud service, chat interface, or HTTP server. Model installation is a separate, explicit operation. The application exports plain UTF-8 `.txt` files without adding summaries or rewriting the recognizer's text.
 

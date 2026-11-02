@@ -13,23 +13,48 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install native test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg xvfb xauth imagemagick
-      - name: Regression tests and syntax checks
-        working-directory: m4a-scribe
+      - name: Package roundtrip tests
+        run: /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Build and extract the application package
+        run: |
+          /usr/bin/python3 scripts/package.py --ref HEAD --output-dir dist
+          (cd dist && sha256sum -c *.sha256)
+          mkdir packaged
+          tar -xzf dist/M4A2TXT-*-linux.tar.gz -C packaged
+      - name: Packaged regression tests and syntax checks
+        working-directory: packaged/M4A2TXT-0.2.0-preview/m4a-scribe
         run: |
           /usr/bin/python3 -m unittest discover -s tests -v
           /usr/bin/python3 -m compileall -q scribe scripts tests
           sh -n run-scribe.sh
           sh -n scripts/build-engine.sh
+      - name: Check packaged executable and file manifest
+        working-directory: packaged/M4A2TXT-0.2.0-preview
+        run: |
+          sha256sum -c SHA256SUMS
+          ./m4a2txt --version
+          ./m4a2txt --check
+          sh -n install-deps.sh
       - name: Exercise GTK widgets and capture layouts
-        working-directory: m4a-scribe
+        working-directory: packaged/M4A2TXT-0.2.0-preview/m4a-scribe
         env:
           GSK_RENDERER: cairo
           GTK_A11Y: none
-        run: xvfb-run -a -s '-screen 0 1280x900x24' dbus-run-session -- /usr/bin/python3 tests/gtk_smoke.py --screenshots ../artifacts
+        run: xvfb-run -a -s '-screen 0 1280x900x24' dbus-run-session -- /usr/bin/python3 tests/gtk_smoke.py --screenshots "$GITHUB_WORKSPACE/artifacts"
+      - name: Preserve runnable package and archive checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m4a2txt-linux
+          path: dist/M4A2TXT-*-linux.tar.gz*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
       - name: Preserve GTK screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
