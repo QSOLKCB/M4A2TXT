@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit model setup. Never imported or called by the desktop app."""
+"""Explicit model setup, invoked by the setup button or manually via the CLI."""
 import argparse
 import hashlib
 import os

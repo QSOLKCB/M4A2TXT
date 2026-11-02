@@ -60,8 +60,8 @@ def main():
             if args.screenshots:
                 args.screenshots.mkdir(parents=True, exist_ok=True)
                 spin(seconds=.4)
-                width = max(window.get_width() for window in Gtk.Window.get_toplevels() if window.get_visible())
-                height = max(window.get_height() for window in Gtk.Window.get_toplevels() if window.get_visible())
+                width = max(window.get_surface().get_width() for window in Gtk.Window.get_toplevels() if window.get_visible())
+                height = max(window.get_surface().get_height() for window in Gtk.Window.get_toplevels() if window.get_visible())
                 subprocess.run(["import", "-window", "root", "-crop", f"{width}x{height}+0+0",
                                 "+repage", str(args.screenshots / name)], check=True)
 
