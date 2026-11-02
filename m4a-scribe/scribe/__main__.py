@@ -9,7 +9,7 @@ from . import __version__
 from .core import Cancelled, Options, ScribeError, transcribe
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Local audio to plain text. No cloud or server.")
     parser.add_argument("files", nargs="*", type=Path)
     parser.add_argument("--version", action="version", version=__version__)
@@ -22,15 +22,14 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=Options.__dataclass_fields__["threads"].default)
     parser.add_argument("--cpu-engine", type=Path, default=Options.__dataclass_fields__["cpu_engine"].default)
     parser.add_argument("--gpu-engine", type=Path, default=Options.__dataclass_fields__["gpu_engine"].default)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.gui or not args.files:
         try:
             from .gui import launch
-            launch()
+            return launch(args.files)
         except (ImportError, RuntimeError) as exc:
-            print(f"Desktop unavailable: {exc}\nUse the CLI, or install python3-tk and open a graphical session.", file=sys.stderr)
+            print(f"Desktop unavailable: {exc}\nUse the CLI, or install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 and launch with /usr/bin/python3 in a desktop session.", file=sys.stderr)
             return 2
-        return 0
     if not args.model:
         parser.error("--model is required for CLI transcription")
     cancel = threading.Event()

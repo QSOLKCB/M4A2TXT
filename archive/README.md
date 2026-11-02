@@ -1,6 +1,6 @@
 # Original source bundle
 
-[`M4A-Scribe-0.1.0-preview.tar.gz`](M4A-Scribe-0.1.0-preview.tar.gz) is the original uploaded preview, moved here without changing its bytes. Its extracted contents are in [`../m4a-scribe/`](../m4a-scribe/).
+[`M4A-Scribe-0.1.0-preview.tar.gz`](M4A-Scribe-0.1.0-preview.tar.gz) is the original uploaded preview, moved here without changing its bytes. The working application was extracted into [`../m4a-scribe/`](../m4a-scribe/) and now develops there. This archive retains the unchanged original preview.
 
 - Original upload commit: [`152519d8b77b6b62c91d7218d3dbd57069069422`](https://github.com/QSOLKCB/M4A2TXT/commit/152519d8b77b6b62c91d7218d3dbd57069069422).
 - Original Git blob: `9edd508418b128c59f32abe5d3feb5cf16edb588`.

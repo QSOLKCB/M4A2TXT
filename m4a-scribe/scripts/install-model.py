@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Explicit model setup. Never imported or called by the desktop app."""
+"""Explicit model setup, invoked by the setup button or manually via the CLI."""
 import argparse
 import hashlib
 import os
+import signal
 from pathlib import Path
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import urllib.request
 # Upstream publishes SHA-1 here. SHA-256 is additionally recorded locally.
 MODELS = {
     "large-v3-turbo": "4af2b29d7ec73d781377bfd1758ca957a807e941",
+    "large-v3-turbo-q5_0": "e050f7970618a659205450ad97eb95a18d69c9ee",
     "large-v3": "ad82bf6a9043ceed055076d0fd39f5f186ff8062",
     "small.en": "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022",
     "tiny.en": "c78c86eb1a8faa21b369bcd33207cc90d64ae9df",
@@ -88,8 +90,14 @@ def main():
 
 
 if __name__ == "__main__":
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, interrupted)
     try:
         raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("Model setup cancelled.", file=sys.stderr)
+        raise SystemExit(130)
     except (OSError, ValueError) as exc:
         print(f"Model setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1)

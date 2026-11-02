@@ -1,0 +1,26 @@
+{
+  "source_commit": "a7bacb14cdf775a972e45149a69cd5b76142cb60",
+  "package_sha256": "9207808572ee329e4032fa273b25b4f54f6af26ffa81b8687ee95143cdbd648f",
+  "engine_source_commit": "d1be6fde11ac6e0407606b4e42fe72d34add8037",
+  "engine_version": "1.9.5",
+  "engine_sha256": "75e136fead3a105480cf03fa60f183eea54602ad65455bd92b688e210a52fae4",
+  "model": "tiny.en",
+  "model_sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+  "input": "whisper.cpp upstream JFK sample, encoded to AAC/M4A",
+  "input_sha256": "7928bc013b1a049153566a40116b62546d68534a006cba0973f8e222accdcb1b",
+  "input_preserved": true,
+  "launcher_invoked_directly": true,
+  "relative_input_and_output_from_other_directory": true,
+  "second_run_socket_creation_denied": [
+    "IPv4",
+    "IPv6",
+    "Unix"
+  ],
+  "existing_transcript_preserved": true,
+  "repeat_transcript_identical": true,
+  "transcript_sha256": "e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3",
+  "transcript_text": "And so my fellow Americans ask not what your country can do for you\nask what you can do for your country.\n",
+  "total_seconds": 2.269,
+  "gpu_tested": false,
+  "full_episode_accuracy_tested": false
+}
