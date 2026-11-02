@@ -45,7 +45,7 @@ def main():
                 raise AssertionError("Expected cancellation")
             event("Whisper: 50%")
             target = output / (source.stem + ".txt")
-            target.write_text(" Uh, no. Two plus two is five.\n", encoding="utf-8")
+            target.write_text("Welcome to this deep dive. Today we're looking at how local transcription works.\n", encoding="utf-8")
             return Result(target, "CPU", .1, "fixture", False)
         controller = BatchController(recognizer)
         settings = Settings(root / "settings.json", output)
@@ -60,7 +60,10 @@ def main():
             if args.screenshots:
                 args.screenshots.mkdir(parents=True, exist_ok=True)
                 spin(seconds=.4)
-                subprocess.run(["import", "-window", "root", str(args.screenshots / name)], check=True)
+                width = max(window.get_width() for window in Gtk.Window.get_toplevels() if window.get_visible())
+                height = max(window.get_height() for window in Gtk.Window.get_toplevels() if window.get_visible())
+                subprocess.run(["import", "-window", "root", "-crop", f"{width}x{height}+0+0",
+                                "+repage", str(args.screenshots / name)], check=True)
 
         assert list(win.profile_buttons) == ["laptop", "mid", "high"]
         assert win.primary_button.get_label() == "Set up Laptop"
@@ -73,8 +76,11 @@ def main():
         engine.parent.mkdir(parents=True)
         engine.write_text("test fixture")
         engine.chmod(0o755)
-        win.profile_buttons["mid"].set_active(True)
-        spin()
+        for key in ("high", "laptop", "mid"):
+            win.profile_buttons[key].set_active(True)
+            spin()
+            assert settings.profile == key
+            assert sum(choice.get_active() for choice in win.profile_buttons.values()) == 1
         assert settings.profile == "mid"
         assert "CPU" in win.mode_note.get_text()
         assert not win.primary_button.get_sensitive()

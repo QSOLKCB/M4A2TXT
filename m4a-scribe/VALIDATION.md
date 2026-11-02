@@ -4,7 +4,7 @@
 
 - **28 local regression tests passed**, including the original 19 pipeline checks and nine desktop-state tests.
 - Python syntax and both shell scripts passed their checks.
-- A GitHub Actions job now exercises the actual GTK widgets under Xvfb: all three presets, setup readiness, file dropping, queue completion, transcript viewing, file-dialog cancellation, and closing during work. It captures layouts using a controlled recognizer and downloads no models. Its result is pending until the workflow runs.
+- The [initial GTK workflow passed](https://github.com/QSOLKCB/M4A2TXT/actions/runs/41536429474), exercising actual GTK widgets under Xvfb: preset selection, setup readiness, file dropping, queue completion, transcript viewing, file-dialog cancellation, and closing during work. It captures layouts using a controlled recognizer and downloads no models. The workflow also runs the 28 regression tests and syntax checks on Ubuntu 24.04. Later branch runs repeat these checks after changes.
 - Local GUI rendering is unavailable because this workspace denies Unix sockets. Actual NVIDIA hardware inference and full-episode accuracy remain unverified.
 
 ## Retained 0.1.0 preview record

@@ -55,7 +55,9 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.toasts.set_child(toolbar)
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title="M4A2TXT", subtitle="Local audio transcription"))
-        self.add_button = button("Add audio…", lambda _: self.choose_audio())
+        self.add_button = button(None, lambda _: self.choose_audio(), "list-add-symbolic")
+        self.add_button.set_tooltip_text("Add audio files (Ctrl+O)")
+        self.add_button.update_property([Gtk.AccessibleProperty.LABEL], ["Add audio files"])
         header.pack_start(self.add_button)
         self.details_button = button("Details", lambda _: self.show_details())
         header.pack_end(self.details_button)
@@ -71,11 +73,21 @@ class ScribeWindow(Adw.ApplicationWindow):
         content.append(text_label("Choose your machine", "title-2"))
         choices = Gtk.Box(spacing=10, homogeneous=True)
         content.append(choices)
+        preset_style = Gtk.CssProvider()
+        preset_style.load_from_data(b"""
+            .machine-preset:checked {
+                background-color: alpha(@accent_bg_color, 0.14);
+                color: @window_fg_color;
+                box-shadow: inset 0 0 0 2px @accent_bg_color;
+            }
+        """)
         self.profile_buttons = {}
         first = None
         for profile in PROFILES.values():
             choice = Gtk.ToggleButton()
             choice.add_css_class("card")
+            choice.add_css_class("machine-preset")
+            choice.get_style_context().add_provider(preset_style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
                           margin_top=16, margin_bottom=16, margin_start=8, margin_end=8)
             heading = Gtk.Label(label=profile.title)
@@ -109,7 +121,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.queue_stack = Gtk.Stack()
         content.append(self.queue_stack)
         self.empty = Adw.StatusPage(icon_name="audio-x-generic-symbolic",
-            title="Audio in. Text out.", description="Drop audio files here, or choose Add audio.")
+            title="Audio in. Text out.", description="Drop audio files here, or use the + button to add audio.")
         self.empty.add_css_class("compact")
         self.empty.set_child(button("Choose audio files…", lambda _: self.choose_audio()))
         self.queue_stack.add_named(self.empty, "empty")
@@ -181,9 +193,7 @@ class ScribeWindow(Adw.ApplicationWindow):
 
     def profile_changed(self, widget, key):
         if not widget.get_active():
-            widget.remove_css_class("suggested-action")
             return
-        widget.add_css_class("suggested-action")
         self.settings.profile = key
         if hasattr(self, "primary_button"):
             self.save_settings()
