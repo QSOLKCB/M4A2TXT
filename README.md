@@ -1,6 +1,6 @@
 # M4A2TXT
 
-Local M4A-to-text conversion using your own CPU or GPU. The extracted **M4A Scribe 0.1.0-preview** provides a native desktop window and batch CLI backed by Whisper.
+Local M4A-to-text conversion using your own CPU or GPU. The extracted **M4A Scribe 0.2.0-preview** provides a GTK 4 / libadwaita desktop with **Laptop / Mid / High** presets and a batch CLI backed by Whisper.
 
 The source lives in [`m4a-scribe/`](m4a-scribe/). Start with its [setup and usage guide](m4a-scribe/README.md).
 
@@ -12,11 +12,13 @@ From the repository root:
 cd m4a-scribe
 ```
 
-Follow the [Ubuntu setup instructions](m4a-scribe/README.md#ubuntu-setup) to install system dependencies, build the local engine, and install a model. Then launch:
+Follow the [Ubuntu setup instructions](m4a-scribe/README.md#ubuntu-setup) to install the GTK system packages once. Then launch:
 
 ```sh
 sh run-scribe.sh
 ```
+
+Select **Laptop**, **Mid**, or **High**, use the clearly labelled one-time setup button if needed, and drop audio files onto the window.
 
 After setup, transcription runs locally without a cloud service, chat interface, or HTTP server. Model installation is a separate, explicit operation. The application exports plain UTF-8 `.txt` files without adding summaries or rewriting the recognizer's text.
 
@@ -29,7 +31,7 @@ After setup, transcription runs locally without a cloud service, chat interface,
 | [`m4a-scribe/VALIDATION.md`](m4a-scribe/VALIDATION.md) | Executed checks and remaining validation |
 | [`archive/`](archive/) | Original uploaded bundle and its checksum |
 
-This remains a source preview. The retained validation covers the CPU transcription path and 19 pipeline regression tests; GPU operation, the desktop's visual layout, and full-length Audio Overview accuracy still require validation on the target machine.
+This remains a source preview. The test suite covers the local pipeline, desktop queue, cancellation, setup choices, and real GTK widget flows. See the validation record and GitHub Actions for executed results. GPU operation and full-length Audio Overview accuracy still require validation on the target machine.
 
 ## Verify the extraction
 
@@ -38,7 +40,7 @@ This remains a source preview. The retained validation covers the CPU transcript
 (cd m4a-scribe && sha256sum -c SHA256SUMS)
 ```
 
-The extracted files and original compressed bundle are preserved byte-for-byte. The package directory retains the original name so its scripts, documentation, and checksums remain consistent.
+The original compressed bundle is preserved byte-for-byte. The application now develops in `m4a-scribe/`; its current checksums are separate from the retained preview baseline in `validation/preview-0.1.0-SHA256SUMS`.
 
 ## Licences
 

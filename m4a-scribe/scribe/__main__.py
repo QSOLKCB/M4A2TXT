@@ -26,11 +26,10 @@ def main() -> int:
     if args.gui or not args.files:
         try:
             from .gui import launch
-            launch()
+            return launch(args.files)
         except (ImportError, RuntimeError) as exc:
-            print(f"Desktop unavailable: {exc}\nUse the CLI, or install python3-tk and open a graphical session.", file=sys.stderr)
+            print(f"Desktop unavailable: {exc}\nUse the CLI, or install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 and launch with /usr/bin/python3 in a desktop session.", file=sys.stderr)
             return 2
-        return 0
     if not args.model:
         parser.error("--model is required for CLI transcription")
     cancel = threading.Event()

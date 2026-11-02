@@ -1,21 +1,21 @@
-# M4A Scribe
+# M4A2TXT
 
 **Local audio in. Plain text out.** An Ubuntu-first desktop app and batch CLI for transcribing NotebookLM Audio Overview exports and other audio files with Whisper.
 
-Version: **0.1.0-preview**. This is a source starter, not a prebuilt desktop release. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
+Version: **0.2.0-preview**. This is a source starter, not a prebuilt desktop release. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
 
 ## What it does
 
 - Select one or several `.m4a` files and save a separate UTF-8 `.txt` for each.
 - Run Whisper locally on CPU, or request the CUDA engine for an NVIDIA GPU.
-- Use a small native window with a queue, progress, read-only transcript preview, and local playback.
+- Use a GTK 4 / libadwaita window with three machine presets, drag-and-drop, a queue, progress, transcript preview, and local playback.
 - Cancel a batch without publishing the active job's unfinished transcript. Earlier completed files stay saved.
 - Preserve existing outputs: `episode.txt`, then `episode (2).txt`, and so on.
 - Also accept MP3, WAV, FLAC, AAC, OGG, OPUS, and the first audio stream of MP4.
 
-The application starts no HTTP server and exposes no web or chat API. It calls local executables through child processes. There are no Python packages to install with pip, no JavaScript runtime, no account, no subscription, and no cloud inference. Python's Tk interface is supplied by the operating system.
+The application starts no HTTP server and exposes no web or chat API. It calls local executables through child processes. There are no Python packages to install with pip, no JavaScript runtime, no account, no subscription, and no cloud inference. GTK and its Python bindings are supplied by the operating system.
 
-Engine and model installation are separate setup commands. **Once setup is complete, normal transcription needs no network connection.** A model can also be copied from another machine.
+Engine and model installation is a separate, explicit setup action, available from the GUI or the setup commands. **Once setup is complete, normal transcription needs no network connection.** A model can also be copied from another machine.
 
 ## Transcription policy
 
@@ -23,31 +23,46 @@ The app copies the recognizer's `.txt` bytes without rewriting them. It adds no 
 
 Whisper itself is not a guarantee of verbatim transcription. It can omit fillers, mishear names or numbers, repeat text, or hallucinate during silence. “No cleanup” describes what this app does after recognition; it does not remove those model limitations. Check important passages against the source audio.
 
-English is the default language. Enter another supported Whisper language code or `auto` in the language field. The task is transcription, not translation. VAD and automatic speaker labelling are not enabled in this preview.
+The three-preset desktop transcribes English. The CLI also accepts another supported Whisper language code or `auto`. The task is transcription, not translation. VAD and automatic speaker labelling are not enabled in this preview.
 
-## Model choice
+## Three machine presets
 
-| Model | Approximate model file | Suggested use |
-| --- | --- | --- |
-| `large-v3-turbo` | 1.5 GiB | Starting choice for clean Audio Overviews on a capable GPU |
-| `large-v3` | 2.9 GiB | Comparison model when accuracy matters more than turnaround |
-| `small.en` | 466 MiB | Lighter English-only option for CPU use |
-| `tiny.en` | 75 MiB | Installation smoke tests; not the recommended research transcript model |
+| Preset | Local model | Approximate model download | Processing |
+| --- | --- | --- | --- |
+| **Laptop** | `small.en` | 466 MiB | CPU, up to 4 threads |
+| **Mid** | `large-v3-turbo-q5_0` | 547 MiB | CUDA when installed; same-model CPU fallback, up to 4 threads |
+| **High** | `large-v3` | 2.9 GiB | CUDA when installed; same-model CPU fallback, up to 8 threads |
 
-These are upstream file sizes, not VRAM requirements or speed promises. Compare the first two on representative episodes before making claims about which is more accurate for this material. The same model can run on CPU; the application never silently selects a smaller model.
+Choose the preset that fits your computer. The GUI chooses the model and settings; there are no model-path, language, or CUDA controls in the main flow. Laptop is the initial default. The app remembers the mode and output folder.
 
-The main engine is [whisper.cpp v1.9.5](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.5), pinned to commit `d1be6fde11ac6e0407606b4e42fe72d34add8037`. The app uses local GGML `.bin` weights, not a PyTorch `.pt` file or a Hugging Face repository name.
+These are download sizes, not VRAM requirements or measured speed/accuracy guarantees. Mid uses quantized weights to reduce model memory. High uses the larger unquantized model; it is not a promise that every word will be more accurate. Actual CPU fallback is reported, and no smaller model is silently substituted.
+
+The engine is [whisper.cpp v1.9.5](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.5), pinned to `d1be6fde11ac6e0407606b4e42fe72d34add8037`. It uses local GGML `.bin` weights. The original `large-v3-turbo` and `tiny.en` setup options remain available for CLI use and smoke tests.
 
 ## Ubuntu setup
 
-Extract the archive and open a terminal in the `m4a-scribe` folder. Install system prerequisites:
+On Ubuntu 24.04 or newer, open a terminal in the repository’s `m4a-scribe` folder. Install the native system packages once:
 
 ```sh
 sudo apt update
-sudo apt install python3 python3-tk ffmpeg git cmake build-essential
+sudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg git cmake build-essential
 ```
 
-Build the CPU engine first:
+Start the desktop:
+
+```sh
+sh run-scribe.sh
+```
+
+Select **Laptop**, **Mid**, or **High**. If that mode needs an engine or model, the main button reads **Set up Laptop/Mid/High**, with the model download size shown above it. Clicking it explicitly downloads the model and builds missing engines; it never uploads audio or starts transcription automatically. Once ready, add or drop audio files and click **Transcribe**. No network access is needed for that step.
+
+The launcher uses `/usr/bin/python3`, so an activated virtual environment does not hide Ubuntu's GTK bindings. Set `SCRIBE_PYTHON` only when using another interpreter that already has the GI bindings. The desktop requires GTK 4.10+ and libadwaita 1.4+.
+
+NVIDIA acceleration needs a compatible driver and CUDA toolkit. Setup builds the CUDA engine when `nvcc` is present. Otherwise Mid and High show that they will use CPU; the selected model stays the same. GPU build failure is reported in Details and leaves CPU operation available. System packages and drivers are never installed or modified by the GUI.
+
+### Manual or offline setup
+
+The setup scripts are still available. Build the CPU engine first:
 
 ```sh
 sh scripts/build-engine.sh cpu
@@ -55,16 +70,17 @@ sh scripts/build-engine.sh cpu
 
 The build downloads the pinned upstream source, then compiles only `whisper-cli`. The server, model URL fetching, and RPC backend are disabled. The default build uses four compilation jobs; set `SCRIBE_BUILD_JOBS` to change that.
 
-Install the recommended starting model explicitly:
-
-```sh
-python3 scripts/install-model.py large-v3-turbo --download
-```
-
-For a lighter CPU model instead:
+For the Laptop preset, install its model explicitly:
 
 ```sh
 python3 scripts/install-model.py small.en --download
+```
+
+For Mid or High respectively:
+
+```sh
+python3 scripts/install-model.py large-v3-turbo-q5_0 --download
+python3 scripts/install-model.py large-v3 --download
 ```
 
 The installer checks the downloaded bytes against the file digest published in the pinned upstream model list and records a local SHA-256 checksum. Upstream's published digest in this list is SHA-1; the extra SHA-256 records the installed file and is not a publisher signature. The model URL can redirect to Hugging Face's download storage. This setup operation never receives your audio.
@@ -72,8 +88,8 @@ The installer checks the downloaded bytes against the file digest published in t
 To import a model without downloading:
 
 ```sh
-python3 scripts/install-model.py large-v3-turbo \
-  --from-file /path/to/ggml-large-v3-turbo.bin
+python3 scripts/install-model.py small.en \
+  --from-file /path/to/ggml-small.en.bin
 ```
 
 For NVIDIA acceleration, install a compatible NVIDIA driver and CUDA toolkit using the appropriate packages for your machine, then build the second engine:
@@ -90,9 +106,9 @@ Start the desktop app:
 sh run-scribe.sh
 ```
 
-Choose audio files, check the model and output folder, then click **Transcribe**. The model selector automatically finds the default model in `models/` after installation. Playback uses local `ffplay` when available. This preview uses a file picker; drag-and-drop is not implemented.
+Choose the machine preset, add or drop audio files, and click **Transcribe**. Change the output folder only if needed. Completed jobs offer **View** and **Copy text**, plus local playback through `ffplay`. **Open transcript folder** opens the saved files. Adding more audio does not retranscribe completed queue entries. Failed or cancelled entries can be retried. Closing during a job cancels it and waits for cleanup.
 
-## Processor modes
+## CLI processor modes
 
 | Mode | Behaviour |
 | --- | --- |
@@ -108,7 +124,7 @@ From the project folder:
 
 ```sh
 python3 -m scribe \
-  --model models/ggml-large-v3-turbo.bin \
+  --model models/ggml-small.en.bin \
   --device auto \
   --output-dir /path/to/transcripts \
   /path/to/episode-a.m4a /path/to/episode-b.m4a
@@ -126,7 +142,7 @@ The preview accepts regular local files up to 4 GiB and decoded audio up to four
 
 Publishing uses an atomic, no-overwrite hard link on the destination filesystem. Use a local filesystem with hard-link support, such as ext4. FAT/exFAT output volumes are not supported by this preview; export to a local folder and copy the finished transcript to those volumes afterward.
 
-The GUI remembers only the model path, output directory, processor choice, and language in the user's XDG configuration directory (`~/.config/m4a-scribe/settings.json` by default). It keeps no persistent transcript database or audio history. The output folder contains the `.txt` files you chose to create. Runtime log content stays in the current window or temporary storage.
+The GUI remembers only the selected preset and output directory in the user's XDG configuration directory (`~/.config/m4a-scribe/settings.json` by default). It keeps no persistent transcript database or audio history. The output folder contains the `.txt` files you chose to create. Runtime log content stays in the current window or temporary storage.
 
 ## Tests
 
@@ -135,14 +151,15 @@ python3 -m unittest discover -s tests -v
 python3 -m compileall -q scribe scripts tests
 ```
 
-Pipeline tests perform real FFmpeg encoding/decoding and deliberately substitute a tiny fake executable for Whisper. They test error handling, argument boundaries, output preservation, cancellation, and fallback. They do not measure ASR accuracy. See [VALIDATION.md](VALIDATION.md) for separate real-engine results and remaining checks.
+Pipeline tests perform real FFmpeg encoding/decoding and deliberately substitute a tiny fake executable for Whisper. They test error handling, argument boundaries, output preservation, cancellation, and fallback. They do not measure ASR accuracy. See [VALIDATION.md](VALIDATION.md) for separate real-engine results and remaining checks. `tests/gtk_smoke.py` exercises real GTK widgets under Xvfb using a controlled recognizer; it does not download models or transcribe private audio.
 
 ## Project layout
 
 | Path | Purpose |
 | --- | --- |
 | `scribe/core.py` | Local process supervision, decoding, cancellation, output publication |
-| `scribe/gui.py` | Native Tk desktop window and local playback |
+| `scribe/gui.py` | Native GTK desktop window and local playback |
+| `scribe/desktop.py` | Three presets, setup, settings, and batch state |
 | `scribe/__main__.py` | CLI and GUI entry point |
 | `scripts/build-engine.sh` | Explicit pinned engine setup |
 | `scripts/install-model.py` | Explicit model download or offline import |

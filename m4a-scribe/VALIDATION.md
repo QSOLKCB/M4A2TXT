@@ -1,4 +1,15 @@
-# Validation of 0.1.0 preview
+# Validation
+
+## GTK update 0.2.0 preview
+
+- **28 local regression tests passed**, including the original 19 pipeline checks and nine desktop-state tests.
+- Python syntax and both shell scripts passed their checks.
+- A GitHub Actions job now exercises the actual GTK widgets under Xvfb: all three presets, setup readiness, file dropping, queue completion, transcript viewing, file-dialog cancellation, and closing during work. It captures layouts using a controlled recognizer and downloads no models. Its result is pending until the workflow runs.
+- Local GUI rendering is unavailable because this workspace denies Unix sockets. Actual NVIDIA hardware inference and full-episode accuracy remain unverified.
+
+## Retained 0.1.0 preview record
+
+The remainder records the original source preview, not new GPU or GTK evidence.
 
 Validation date: 3 November 2026. These checks were performed in the development workspace, not on the user's desktop.
 

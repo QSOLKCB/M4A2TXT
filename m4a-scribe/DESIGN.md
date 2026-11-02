@@ -1,20 +1,20 @@
-# M4A Scribe design
+# M4A2TXT design
 
 Design baseline: 3 November 2026. Target: a local Ubuntu desktop utility that turns Audio Overview `.m4a` exports into plain UTF-8 text. The AI is a speech recognition component, with no conversational interface or external inference service.
 
 ## User experience
 
-The normal task is: choose one or more audio files, choose the output folder, click Transcribe, and open the resulting text. The application remembers the installed model and processor preference. A batch runs one file at a time to keep memory use predictable.
+The normal task is: select Laptop, Mid, or High; add or drop audio files; click Transcribe; open the resulting text. The application remembers the selected preset and output folder. A batch runs one file at a time to keep memory use predictable.
 
-The interface has one native window: file queue; local model and destination selectors; Auto, GPU preferred, or CPU mode; language; Transcribe and Cancel; transcript preview; playback; and an optional Details tab. Setup and diagnostics are separate from the transcript itself.
+The interface has one native GTK window: three machine presets, file queue, destination, Transcribe and Cancel, and an optional Details window. Completed jobs open a read-only transcript with copy and playback controls. Model names, paths, language codes, and CUDA switches are absent from the normal flow. The desktop uses English; the CLI retains its language option.
 
-The initial toolkit is Python's standard Tk/ttk binding. It needs the operating system's `python3-tk` package, but no pip environment. If a more integrated GNOME appearance becomes a priority, the same core can be called from GTK later; a second UI is not necessary for the initial tool.
+The desktop uses GTK 4.10+ and libadwaita 1.4+ through the OS PyGObject packages. Native controls follow the desktop light/dark preference. The launcher uses system Python so activated virtual environments do not hide the GI bindings. No Tk, web server, browser wrapper, JavaScript runtime, or pip environment is required for the desktop.
 
 ## Components
 
 | Component | Responsibility | Boundary |
 | --- | --- | --- |
-| Tk desktop / CLI | User choices, queue, presentation, cancellation | No model downloads or HTTP server |
+| GTK desktop / CLI | Three presets, queue, presentation, cancellation | Explicit setup is separate from offline transcription; no HTTP server |
 | Python core | Validate local input, supervise children, publish complete text | Calls executables with argument arrays, not a shell |
 | FFmpeg | Decode local media to canonical audio | File/pipe protocols only; explicit demuxer; no network inputs |
 | whisper.cpp CPU executable | Run Whisper with GPU disabled | Independent CPU build |
@@ -56,17 +56,17 @@ The initial defaults are English transcription, temperature zero, temperature fa
 
 The text returned by whisper.cpp is the exported text, including its punctuation and line breaks. The app must not repair a speaker's factual mistakes or calculations. Whisper may itself normalize speech, omit hesitations, or hallucinate; exact experimental quotations still need audio review.
 
-Start with unquantized `large-v3-turbo` for clean overview audio. Compare full `large-v3` against the same reference clips before changing the preferred model. `small.en` offers a smaller CPU option selected explicitly by the user. Quantized models are a future selectable memory/performance trade-off, not an automatic downgrade.
+Laptop selects `small.en` on CPU with at most four threads. Mid selects quantized `large-v3-turbo-q5_0` with GPU preference and at most four threads. High selects unquantized `large-v3` with GPU preference and at most eight threads. Actual thread counts are capped by the host CPU count. Mid and High use the existing Auto strategy, so a CPU retry retains the same selected model. Presets are resource choices, not measured accuracy or throughput rankings.
 
 Do not infer speaker identity from alternating sentences or stereo channel layout. The two hosts may be mixed into both channels. Reliable speaker turns require a separately evaluated local diarization system; host names require explicit user assignment. Plain text is useful without this additional model.
 
 ## Local operation
 
-The runtime has no download code or cloud fallback. Network-capable setup lives in a separate script that is never imported or invoked by the app. The shipped build configuration disables whisper.cpp's CURL and server support and ggml's RPC backend. Custom executable paths are a user-controlled trust boundary; arbitrary replacement executables are not guaranteed to be offline.
+Normal transcription has no download code or cloud fallback. The GUI shows a labelled Set up button when the selected preset lacks an engine or model, together with the expected model download size. Only that explicit action invokes the existing setup scripts. It never transcribes automatically afterward, installs OS packages, or changes drivers. The core transcription path never invokes setup. The shipped build configuration disables whisper.cpp's CURL and server support and ggml's RPC backend. Custom executable paths are a user-controlled trust boundary; arbitrary replacement executables are not guaranteed to be offline.
 
 The app preserves the original audio and decodes a private copy. Temporary decoded audio can be larger than the compressed source: 16,000 samples/second × 2 bytes gives about 115 MB per hour before the recognizer's in-memory representation and model buffers. Whole-file decoding has a four-hour preview cap. OS crashes may leave temporary material; no secure-erasure claim is made.
 
-The batch queue is in memory. Settings store paths and options only. No transcript database, telemetry, remote analytics, or cloud account is part of the design. Setup can be completed elsewhere and transferred, subject to compatible binaries and normal dependency installation.
+The batch queue is in memory. Completed jobs are excluded from subsequent batches; cancelled and failed jobs remain eligible for an explicit retry. The worker publishes events and the GTK main thread alone updates visible jobs. Closing requests cancellation and keeps the window alive until the worker finishes cleanup. Settings store the selected preset and output folder only. No transcript database, telemetry, remote analytics, or cloud account is part of the design. Setup can be completed elsewhere and transferred, subject to compatible binaries and normal dependency installation.
 
 ## GPU and CPU behaviour
 
@@ -80,13 +80,14 @@ For the user's NVIDIA desktop, CUDA is the intended accelerated path. On machine
 
 | Stage | Deliverable | Exit condition |
 | --- | --- | --- |
-| Starter, included here | Local batch CLI, native window, FFmpeg decode, Whisper adapter, cancellation, safe output, setup scripts | Local wrapper tests and documented engine smoke results |
+| Starter, archived | Local batch CLI, original Tk window, FFmpeg decode, Whisper adapter, safe output | Retained 0.1.0 bundle and CPU smoke record |
+| GTK update, included here | Three presets, drag-and-drop, explicit setup, safe retries, transcript review | Regression tests and a real GTK widget smoke test under Xvfb |
 | Hardware validation | RTX GPU run and Ryzen CPU run using representative episodes | Capture actual backend, wall time, peak RAM/VRAM, and reviewed transcript differences |
 | Transcript review | Segment timestamps and seek-to-audio; manual edits saved separately | Raw machine output retained; timestamps map to original audio |
 | Evidence exports | Optional JSON receipt with source/model/engine/output hashes and settings | Metadata stays out of `.txt`; failed runs cannot claim complete evidence |
 | Desktop release | Versioned package, launcher, installed-runtime paths | Clean Ubuntu install and offline launch tested; dependencies/licences accounted for |
 
-The starter does not implement diarization, timed transcript seeking, manual editing, evidence sidecars, watch folders, resumable jobs, or a prebuilt installer. These are separate additions and are not necessary to make the basic file-to-text workflow useful.
+The app does not implement diarization, timed transcript seeking, manual editing, evidence sidecars, watch folders, resumable jobs, or a prebuilt installer. These are separate additions and are not necessary to make the basic file-to-text workflow useful.
 
 ## Acceptance checks
 
