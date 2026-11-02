@@ -1,0 +1,24 @@
+test_audio_decode_cannot_request_http (test_pipeline.PipelineTests.test_audio_decode_cannot_request_http) ... ok
+test_cancel_during_inference_publishes_nothing (test_pipeline.PipelineTests.test_cancel_during_inference_publishes_nothing) ... ok
+test_corrupt_m4a_leaves_no_transcript (test_pipeline.PipelineTests.test_corrupt_m4a_leaves_no_transcript) ... ok
+test_decoded_limit_rejects_instead_of_silently_truncating (test_pipeline.PipelineTests.test_decoded_limit_rejects_instead_of_silently_truncating) ... ok
+test_empty_audio_rejected (test_pipeline.PipelineTests.test_empty_audio_rejected) ... ok
+test_empty_recognizer_output_is_explicit (test_pipeline.PipelineTests.test_empty_recognizer_output_is_explicit) ... ok
+test_existing_output_and_symlink_are_never_overwritten (test_pipeline.PipelineTests.test_existing_output_and_symlink_are_never_overwritten) ... ok
+test_explicit_gpu_does_not_retry_cpu (test_pipeline.PipelineTests.test_explicit_gpu_does_not_retry_cpu) ... ok
+test_fifo_does_not_block (test_pipeline.PipelineTests.test_fifo_does_not_block) ... ok
+test_gpu_failure_retries_whole_job_once_on_cpu (test_pipeline.PipelineTests.test_gpu_failure_retries_whole_job_once_on_cpu) ... ok
+test_long_unicode_output_name_is_bounded (test_pipeline.PipelineTests.test_long_unicode_output_name_is_bounded) ... ok
+test_missing_engine_and_no_model_do_not_download (test_pipeline.PipelineTests.test_missing_engine_and_no_model_do_not_download) ... ok
+test_output_publication_error_keeps_existing_files (test_pipeline.PipelineTests.test_output_publication_error_keeps_existing_files) ... ok
+test_parallel_publication_is_no_clobber (test_pipeline.PipelineTests.test_parallel_publication_is_no_clobber) ... ok
+test_pre_cancel_does_not_start_work (test_pipeline.PipelineTests.test_pre_cancel_does_not_start_work) ... ok
+test_real_m4a_decode_preserves_recognizer_bytes_and_input (test_pipeline.PipelineTests.test_real_m4a_decode_preserves_recognizer_bytes_and_input) ... ok
+test_source_symlink_rejected (test_pipeline.PipelineTests.test_source_symlink_rejected) ... ok
+test_success_without_output_is_failure (test_pipeline.PipelineTests.test_success_without_output_is_failure) ... ok
+test_cancellation_terminates_started_child (test_pipeline.ProcessTests.test_cancellation_terminates_started_child) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 3.073s
+
+OK

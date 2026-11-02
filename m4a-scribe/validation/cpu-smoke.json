@@ -1,0 +1,40 @@
+{
+  "kind": "local CPU smoke test; not an ASR benchmark",
+  "source": "whisper.cpp pinned samples/jfk.wav, re-encoded to AAC in M4A using local FFmpeg",
+  "engine_revision": "d1be6fde11ac6e0407606b4e42fe72d34add8037",
+  "engine_version": "whisper.cpp version: 1.9.5",
+  "model": "tiny.en",
+  "device": "cpu",
+  "threads": 4,
+  "python": "3.12.14",
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "model_sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+  "engine_sha256": "75e136fead3a105480cf03fa60f183eea54602ad65455bd92b688e210a52fae4",
+  "source_m4a_sha256": "d0d098ad35d439a45f23bd2e285eb8d4c1ed93fcca82b4cf2315ef8f6259ede0",
+  "outputs": [
+    {
+      "name": "jfk (2).txt",
+      "sha256": "e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3",
+      "text": "And so my fellow Americans ask not what your country can do for you\nask what you can do for your country.\n"
+    },
+    {
+      "name": "jfk.txt",
+      "sha256": "e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3",
+      "text": "And so my fellow Americans ask not what your country can do for you\nask what you can do for your country.\n"
+    }
+  ],
+  "socket_denial_verified": true,
+  "notes": [
+    "Earlier smoke runs also exercised output-name collisions. A final network-denied run captured the release engine hash before and after execution and produced the same transcript.",
+    "The second run installed an inherited seccomp filter and verified socket creation was denied for IPv4, IPv6, and Unix before executing the CLI.",
+    "No NVIDIA hardware was present. The desktop could not be rendered because the headless environment refused Xvfb listening sockets."
+  ],
+  "final_release_smoke": {
+    "exit_code": 0,
+    "engine_hash_unchanged": true,
+    "output_sha256": "e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3",
+    "text": "And so my fellow Americans ask not what your country can do for you\nask what you can do for your country.\n",
+    "stderr": "Socket-denial filter verified; running local transcription.\nReading local audio\u2026\nDecoding audio locally\u2026\nTranscribing locally \u2014 CPU\u2026\nWhisper: 100%\nSaved: /workspace/scratch/2d44b1154e14/smoke/final-output/jfk.txt\n",
+    "matches_previous_runs": true
+  }
+}
