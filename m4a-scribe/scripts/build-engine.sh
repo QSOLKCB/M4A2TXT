@@ -40,5 +40,9 @@ cmake -S "$source_dir" -B "$build_dir" \
     -DWHISPER_CURL=OFF -DGGML_RPC=OFF -DGGML_BACKEND_DL=OFF \
     -DGGML_NATIVE=ON -DGGML_CUDA="$cuda" "$@"
 cmake --build "$build_dir" --config Release --parallel "${SCRIBE_BUILD_JOBS:-4}" --target whisper-cli
-"$build_dir/bin/whisper-cli" --version
+# Compile-only CI has the toolkit's link stubs but no installed NVIDIA driver.
+# Normal desktop setup still executes the engine to verify runtime linkage.
+if [ "${SCRIBE_BUILD_ONLY:-0}" != 1 ]; then
+    "$build_dir/bin/whisper-cli" --version
+fi
 printf '\nBuilt %s engine at %s/bin/whisper-cli\n' "$mode" "$build_dir"

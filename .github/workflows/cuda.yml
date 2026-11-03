@@ -38,6 +38,7 @@ jobs:
     env:
       SCRIBE_CUDA_ARCHITECTURES: '86;120'
       SCRIBE_BUILD_JOBS: '2'
+      SCRIBE_BUILD_ONLY: '1'
       # Keep embedded intermediate filenames stable for byte-exact cache checks.
       # Each source has its own CMake object path; build phases never overlap.
       CUDAFLAGS: '--objdir-as-tempdir'
@@ -79,7 +80,9 @@ jobs:
           test -x .runtime/cuda/bin/whisper-cli
           grep '^GGML_CUDA:BOOL=ON$' .runtime/cuda/CMakeCache.txt
           grep '^CMAKE_CUDA_ARCHITECTURES:.*=86;120' .runtime/cuda/CMakeCache.txt
-          .runtime/cuda/bin/whisper-cli --version
+          # This host has link stubs, not libcuda.so.1 from a real driver.
+          readelf -d .runtime/cuda/bin/whisper-cli
+          nm .runtime/cuda/bin/whisper-cli | grep ' T ggml_backend_cuda_init$'
           echo 'CUDA compilation passed. This hosted runner has not performed GPU inference.'
       - name: Save compiler cache after successful validation
         if: ${{ success() && steps.cache.outputs.cache-hit != 'true' }}
