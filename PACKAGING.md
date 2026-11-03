@@ -19,7 +19,7 @@ If dependencies are missing, run this once, then launch again:
 
 This explicit helper uses `sudo apt-get` to install Python, GTK, FFmpeg, and build tools. The app never runs it automatically. It does not install or change NVIDIA drivers. You can inspect it before running it.
 
-Choose **Laptop**, **Mid**, or **High**. Click the clearly labelled **Set up** button the first time you use a preset; this downloads its model and builds the local engine. Then drop your `.m4a` files, click **Transcribe**, and open the resulting `.txt` files. After setup, transcription works offline. Mid and High use CUDA when available and visibly fall back to CPU otherwise. NVIDIA acceleration needs a compatible driver and CUDA toolkit already installed.
+Choose **Laptop**, **Mid**, or **High**, then **CPU** or **GPU**. Click the clearly labelled **Set up CPU/GPU** button when needed; this downloads the preset's model and builds the selected local engine. Then drop your `.m4a` files, click **Transcribe**, and open the resulting `.txt` files. After setup, transcription works offline. GPU mode requires a reported CUDA backend and never silently retries on CPU. NVIDIA acceleration needs a compatible driver and CUDA toolkit already installed; RTX 50-series builds need CUDA 12.8 or newer. Select CPU to process the same model without CUDA.
 
 The bundle contains the application source and executable launcher. It uses the host's native GTK and FFmpeg; it does not bundle Python, system libraries, model weights, or a machine-specific engine binary. Engine builds happen on your machine so they target your CPU. This is a portable application folder, not an AppImage or a fully self-contained binary.
 

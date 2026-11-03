@@ -15,7 +15,7 @@ Usage: ./m4a2txt [AUDIO ...]
        ./m4a2txt --version
        ./m4a2txt --cli [CLI OPTIONS] AUDIO ...
 
-With no options, open the GTK desktop. Choose Laptop, Mid, or High,
+With no options, open the GTK desktop. Choose Laptop, Mid, or High and CPU/GPU,
 add audio, and click Transcribe. Use the labelled Set up button once
 to install the selected local model and engine.
 
@@ -48,8 +48,11 @@ def check() -> int:
             if not shutil.which(tool):
                 missing.append(tool + " (needed for first-time engine setup)")
     for profile in PROFILES.values():
-        needs = readiness(profile)
-        print(f"{profile.title}: " + ("set up " + ", ".join(needs) if needs else "ready"))
+        for device in ("cpu", "gpu"):
+            needs = readiness(profile, device=device)
+            print(f"{profile.title} / {device.upper()}: " + ("set up " + ", ".join(needs) if needs else "installed"))
+    print("CUDA compiler nvcc: " + (shutil.which("nvcc") or "not found (needed to build GPU engine)"))
+    print("GPU execution is checked during transcription; installed files alone do not prove CUDA availability.")
     if missing:
         print("\nMissing dependencies:\n- " + "\n- ".join(missing))
         print("\nOn Ubuntu 24.04+, run ./install-deps.sh, then try ./m4a2txt again.")

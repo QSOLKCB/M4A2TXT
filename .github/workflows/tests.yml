@@ -2,10 +2,15 @@ name: Local app checks
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: app-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tests:
@@ -21,6 +26,11 @@ jobs:
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg xvfb xauth imagemagick
       - name: Package roundtrip tests
         run: /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Verify fixture reuse against the complete fresh suite
+        working-directory: m4a-scribe
+        env:
+          SCRIBE_TEST_FRESH_FIXTURES: '1'
+        run: /usr/bin/python3 -m unittest discover -s tests -v
       - name: Build and extract the application package
         run: |
           /usr/bin/python3 scripts/package.py --ref HEAD --output-dir dist
@@ -28,21 +38,21 @@ jobs:
           mkdir packaged
           tar -xzf dist/M4A2TXT-*-linux.tar.gz -C packaged
       - name: Packaged regression tests and syntax checks
-        working-directory: packaged/M4A2TXT-0.2.0-preview/m4a-scribe
+        working-directory: packaged/M4A2TXT-0.3.0-preview/m4a-scribe
         run: |
           /usr/bin/python3 -m unittest discover -s tests -v
           /usr/bin/python3 -m compileall -q scribe scripts tests
           sh -n run-scribe.sh
           sh -n scripts/build-engine.sh
       - name: Check packaged executable and file manifest
-        working-directory: packaged/M4A2TXT-0.2.0-preview
+        working-directory: packaged/M4A2TXT-0.3.0-preview
         run: |
           sha256sum -c SHA256SUMS
           ./m4a2txt --version
           ./m4a2txt --check
           sh -n install-deps.sh
       - name: Exercise GTK widgets and capture layouts
-        working-directory: packaged/M4A2TXT-0.2.0-preview/m4a-scribe
+        working-directory: packaged/M4A2TXT-0.3.0-preview/m4a-scribe
         env:
           GSK_RENDERER: cairo
           GTK_A11Y: none

@@ -28,11 +28,21 @@ git -C "$source_dir" checkout --detach "$pin"
 test "$(git -C "$source_dir" rev-parse HEAD)" = "$pin"
 cuda=OFF
 if [ "$mode" = cuda ]; then cuda=ON; fi
+# Override native GPU detection for cross-compilation/CI; pass one quoted CMake
+# list (for example '86;120'), never interpolate it as shell code.
+set --
+if [ "$mode" = cuda ] && [ -n "${SCRIBE_CUDA_ARCHITECTURES:-}" ]; then
+    set -- "-DCMAKE_CUDA_ARCHITECTURES=$SCRIBE_CUDA_ARCHITECTURES"
+fi
 cmake -S "$source_dir" -B "$build_dir" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
     -DWHISPER_BUILD_IS_DEV=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF \
     -DWHISPER_CURL=OFF -DGGML_RPC=OFF -DGGML_BACKEND_DL=OFF \
-    -DGGML_NATIVE=ON -DGGML_CUDA="$cuda"
+    -DGGML_NATIVE=ON -DGGML_CUDA="$cuda" "$@"
 cmake --build "$build_dir" --config Release --parallel "${SCRIBE_BUILD_JOBS:-4}" --target whisper-cli
-"$build_dir/bin/whisper-cli" --version
+# Compile-only CI has the toolkit's link stubs but no installed NVIDIA driver.
+# Normal desktop setup still executes the engine to verify runtime linkage.
+if [ "${SCRIBE_BUILD_ONLY:-0}" != 1 ]; then
+    "$build_dir/bin/whisper-cli" --version
+fi
 printf '\nBuilt %s engine at %s/bin/whisper-cli\n' "$mode" "$build_dir"

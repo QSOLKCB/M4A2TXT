@@ -17,7 +17,7 @@ def main(argv=None) -> int:
     parser.add_argument("--model", type=Path, help="Local whisper.cpp GGML .bin file")
     parser.add_argument("--output-dir", type=Path, default=Path.cwd())
     parser.add_argument("--device", choices=("auto", "cpu", "gpu"), default="auto",
-                        help="gpu requests the CUDA engine; backend selection is engine-managed")
+                        help="gpu requires a reported CUDA backend; cpu disables GPU; auto allows a CPU retry")
     parser.add_argument("--language", default="en")
     parser.add_argument("--threads", type=int, default=Options.__dataclass_fields__["threads"].default)
     parser.add_argument("--cpu-engine", type=Path, default=Options.__dataclass_fields__["cpu_engine"].default)

@@ -105,11 +105,22 @@ class DesktopTests(unittest.TestCase):
         path.write_text("not json")
         settings = Settings(path, self.output)
         self.assertEqual(settings.profile, "laptop")
+        self.assertEqual(settings.device, "cpu")
         settings.profile = "mid"
+        settings.device = "gpu"
         settings.save()
         loaded = Settings(path)
-        self.assertEqual((loaded.profile, loaded.output), ("mid", self.output))
-        self.assertEqual(set(__import__('json').loads(path.read_text())), {"profile", "output"})
+        self.assertEqual((loaded.profile, loaded.device, loaded.output), ("mid", "gpu", self.output))
+        self.assertEqual(set(__import__('json').loads(path.read_text())), {"profile", "device", "output"})
+
+    def test_old_and_invalid_device_settings_default_to_cpu(self):
+        path = self.root / "settings.json"
+        for data in ({"profile": "high"}, {"profile": "mid", "device": "auto"},
+                     {"profile": "mid", "device": ["gpu"]}):
+            path.write_text(__import__('json').dumps(data))
+            loaded = Settings(path, self.output)
+            self.assertEqual(loaded.profile, data["profile"])
+            self.assertEqual(loaded.device, "cpu")
 
     def test_profile_models_are_supported_by_explicit_installer(self):
         path = Path(__file__).resolve().parents[1] / "scripts/install-model.py"
@@ -118,10 +129,13 @@ class DesktopTests(unittest.TestCase):
         spec.loader.exec_module(module)
         for profile in PROFILES.values():
             self.assertIn(profile.model, module.MODELS)
-            options = profile.options(self.output, self.root)
-            self.assertTrue(options.model.is_relative_to(self.root / "models"))
-        self.assertEqual(PROFILES["laptop"].device, "cpu")
-        self.assertTrue(all(PROFILES[key].device == "auto" for key in ("mid", "high")))
+            for device in ("cpu", "gpu"):
+                options = profile.options(self.output, self.root, device)
+                self.assertEqual(options.device, device)
+                self.assertEqual(options.model.name, f"ggml-{profile.model}.bin")
+                self.assertTrue(options.model.is_relative_to(self.root / "models"))
+        with self.assertRaises(ScribeError):
+            PROFILES["mid"].options(self.output, self.root, "auto")
 
     def test_readiness_is_for_selected_profile_not_any_model(self):
         options = PROFILES["laptop"].options(self.output, self.root)
@@ -133,41 +147,81 @@ class DesktopTests(unittest.TestCase):
         with mock.patch("scribe.desktop.shutil.which", return_value="/usr/bin/ffmpeg"):
             self.assertEqual(readiness(PROFILES["laptop"], self.root), [])
             self.assertEqual(readiness(PROFILES["mid"], self.root), ["model download"])
+            self.assertEqual(readiness(PROFILES["laptop"], self.root, "gpu"), ["CUDA engine"])
+            options.cpu_engine.unlink()
+            options.gpu_engine.parent.mkdir(parents=True)
+            options.gpu_engine.write_text("fixture")
+            options.gpu_engine.chmod(0o755)
+            self.assertEqual(readiness(PROFILES["laptop"], self.root, "gpu"), [])
+            self.assertEqual(readiness(PROFILES["laptop"], self.root, "cpu"), ["CPU engine"])
 
     def test_setup_requires_explicit_start_and_never_runs_recognizer(self):
         calls = []
-        def installer(profile, cancel, event, root):
-            calls.append(profile.key)
+        def installer(profile, cancel, event, root, device):
+            calls.append((profile.key, device))
             event("Fixture setup complete")
         self.controller.add([self.audio("a.m4a")])
         self.assertEqual(calls, [])
-        self.controller.setup(PROFILES["mid"], self.root, installer)
+        self.controller.setup(PROFILES["mid"], self.root, installer, device="gpu")
         self.finish()
-        self.assertEqual(calls, ["mid"])
+        self.assertEqual(calls, [("mid", "gpu")])
         self.assertEqual(self.calls, [])
         self.assertEqual(self.controller.jobs[0].status, "Ready")
 
-    def test_setup_gpu_failure_keeps_cpu_and_downloads_selected_model(self):
+    def test_setup_builds_only_selected_engine_and_keeps_selected_model(self):
         commands, messages = [], []
         def run(argv, work, cancel, event, label):
             commands.append(argv)
-            if label == "GPU setup":
-                raise ScribeError("no supported GPU")
             if label == "Engine setup":
-                engine = self.root / ".runtime/cpu/bin/whisper-cli"
+                engine = self.root / f".runtime/{argv[-1]}/bin/whisper-cli"
                 engine.parent.mkdir(parents=True)
                 engine.write_text("fixture")
                 engine.chmod(0o755)
             if label == "Model setup":
                 model = self.root / "models/ggml-large-v3-turbo-q5_0.bin"
-                model.parent.mkdir()
+                model.parent.mkdir(exist_ok=True)
                 model.write_bytes(b"fixture")
         with mock.patch("scribe.desktop.run_process", side_effect=run), mock.patch("scribe.desktop.shutil.which", return_value="/fixture/tool"):
-            setup_profile(PROFILES["mid"], threading.Event(), messages.append, self.root)
-        self.assertEqual(len(commands), 3)
-        self.assertIn("--download", commands[-1])
-        self.assertIn("large-v3-turbo-q5_0", commands[-1])
-        self.assertTrue(any("CPU engine remains" in m for m in messages))
+            for device, mode in (("gpu", "cuda"), ("cpu", "cpu")):
+                commands.clear()
+                setup_profile(PROFILES["mid"], threading.Event(), messages.append, self.root, device)
+                self.assertEqual(len(commands), 2)
+                self.assertEqual(commands[0][-1], mode)
+                self.assertIn("--download", commands[-1])
+                self.assertIn("large-v3-turbo-q5_0", commands[-1])
+
+    def test_missing_cuda_compiler_stops_before_download_or_cpu_build(self):
+        with mock.patch("scribe.desktop.shutil.which", side_effect=lambda name: None if name == "nvcc" else "/fixture/tool"), \
+                mock.patch("scribe.desktop.run_process") as run:
+            with self.assertRaisesRegex(ScribeError, "nvcc is missing"):
+                setup_profile(PROFILES["high"], threading.Event(), lambda _: None, self.root, "gpu")
+            run.assert_not_called()
+
+    def test_failed_cuda_build_is_not_success_and_keeps_existing_cpu(self):
+        cpu = self.root / ".runtime/cpu/bin/whisper-cli"
+        cpu.parent.mkdir(parents=True)
+        cpu.write_text("preserved CPU engine")
+        cpu.chmod(0o755)
+        with mock.patch("scribe.desktop.shutil.which", return_value="/fixture/tool"), \
+                mock.patch("scribe.desktop.run_process", side_effect=ScribeError("CUDA build failed")) as run:
+            with self.assertRaisesRegex(ScribeError, "CUDA build failed"):
+                setup_profile(PROFILES["mid"], threading.Event(), lambda _: None, self.root, "gpu")
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][-1], "cuda")
+        self.assertEqual(cpu.read_text(), "preserved CPU engine")
+
+    def test_installed_gpu_engine_does_not_require_compiler_again(self):
+        options = PROFILES["high"].options(self.output, self.root, "gpu")
+        options.gpu_engine.parent.mkdir(parents=True)
+        options.gpu_engine.write_text("installed CUDA fixture")
+        options.gpu_engine.chmod(0o755)
+        options.model.parent.mkdir()
+        options.model.write_bytes(b"installed model")
+        with mock.patch("scribe.desktop.shutil.which", side_effect=lambda name: "/fixture/ffmpeg" if name == "ffmpeg" else None), \
+                mock.patch("scribe.desktop.run_process") as run:
+            setup_profile(PROFILES["high"], threading.Event(), lambda _: None, self.root, "gpu")
+            self.assertEqual(run.call_count, 1)  # installer verifies the existing model
+            self.assertEqual(run.call_args.args[-1], "Model setup")
 
 
 if __name__ == "__main__":

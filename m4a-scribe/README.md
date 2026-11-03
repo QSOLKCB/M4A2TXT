@@ -2,7 +2,7 @@
 
 **Local audio in. Plain text out.** An Ubuntu-first desktop app and batch CLI for transcribing NotebookLM Audio Overview exports and other audio files with Whisper.
 
-Version: **0.2.0-preview**. The Linux package includes an executable `./m4a2txt` launcher at its top level. It uses native system dependencies and builds its engine on first-time setup; it is not a self-contained binary. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
+Version: **0.3.0-preview**. The Linux package includes an executable `./m4a2txt` launcher at its top level. It uses native system dependencies and builds its engine on first-time setup; it is not a self-contained binary. See [VALIDATION.md](VALIDATION.md) for exactly what was exercised.
 
 ## What it does
 
@@ -27,15 +27,15 @@ The three-preset desktop transcribes English. The CLI also accepts another suppo
 
 ## Three machine presets
 
-| Preset | Local model | Approximate model download | Processing |
+| Preset | Local model | Approximate model download | CPU thread cap |
 | --- | --- | --- | --- |
-| **Laptop** | `small.en` | 466 MiB | CPU, up to 4 threads |
-| **Mid** | `large-v3-turbo-q5_0` | 547 MiB | CUDA when installed; same-model CPU fallback, up to 4 threads |
-| **High** | `large-v3` | 2.9 GiB | CUDA when installed; same-model CPU fallback, up to 8 threads |
+| **Laptop** | `small.en` | 466 MiB | 4 |
+| **Mid** | `large-v3-turbo-q5_0` | 547 MiB | 4 |
+| **High** | `large-v3` | 2.9 GiB | 8 |
 
-Choose the preset that fits your computer. The GUI chooses the model and settings; there are no model-path, language, or CUDA controls in the main flow. Laptop is the initial default. The app remembers the mode and output folder.
+Choose a preset, then use the **CPU / GPU** toggle below it. All three presets support either processor. **Mid + GPU** uses quantized turbo weights on NVIDIA CUDA; **High + GPU** uses full large-v3 weights on NVIDIA CUDA. CPU mode uses the same chosen model with GPU execution disabled. Laptop + CPU is the initial default. The app remembers the preset, processor, and output folder independently; changing the preset keeps your processor choice. Existing settings without a processor choice start on CPU.
 
-These are download sizes, not VRAM requirements or measured speed/accuracy guarantees. Mid uses quantized weights to reduce model memory. High uses the larger unquantized model; it is not a promise that every word will be more accurate. Actual CPU fallback is reported, and no smaller model is silently substituted.
+These are download sizes, not VRAM requirements or measured speed/accuracy guarantees. Mid uses quantized weights to reduce model memory. High uses the larger unquantized model; it is not a promise that every word will be more accurate. GPU mode stops on failure and keeps the job available for retry. Choose CPU explicitly, or try Mid if High exhausts GPU memory. No smaller model is silently substituted.
 
 The engine is [whisper.cpp v1.9.5](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.5), pinned to `d1be6fde11ac6e0407606b4e42fe72d34add8037`. It uses local GGML `.bin` weights. The original `large-v3-turbo` and `tiny.en` setup options remain available for CLI use and smoke tests.
 
@@ -54,15 +54,15 @@ Start the desktop:
 sh run-scribe.sh
 ```
 
-Select **Laptop**, **Mid**, or **High**. If that mode needs an engine or model, the main button reads **Set up Laptop/Mid/High**, with the model download size shown above it. Clicking it explicitly downloads the model and builds missing engines; it never uploads audio or starts transcription automatically. Once ready, add or drop audio files and click **Transcribe**. No network access is needed for that step.
+Select **Laptop**, **Mid**, or **High**, then **CPU** or **GPU**. If that combination needs an engine or model, the main button reads **Set up CPU/GPU**, with the preset and model download size shown above it. Clicking it explicitly downloads the model and builds the selected missing engine; it never uploads audio or starts transcription automatically. Once ready, add or drop audio files and click **Transcribe**. No network access is needed for that step.
 
 The launcher uses `/usr/bin/python3`, so an activated virtual environment does not hide Ubuntu's GTK bindings. Set `SCRIBE_PYTHON` only when using another interpreter that already has the GI bindings. The desktop requires GTK 4.10+ and libadwaita 1.4+.
 
-NVIDIA acceleration needs a compatible driver and CUDA toolkit. Setup builds the CUDA engine when `nvcc` is present. Otherwise Mid and High show that they will use CPU; the selected model stays the same. GPU build failure is reported in Details and leaves CPU operation available. System packages and drivers are never installed or modified by the GUI.
+NVIDIA acceleration needs a compatible driver and CUDA toolkit. With GPU selected, setup requires `nvcc` to build the CUDA engine. Missing compilers and failed builds are reported in Details; setup does not silently succeed using CPU. Existing CPU engines are retained, and CPU can be selected at any time while idle. Once a CUDA engine is installed, `nvcc` is not needed for transcription, but its CUDA runtime libraries and a compatible driver are. System packages and drivers are never installed or modified by the GUI.
 
 ### Manual or offline setup
 
-The setup scripts are still available. Build the CPU engine first:
+The setup scripts are still available. For CPU mode:
 
 ```sh
 sh scripts/build-engine.sh cpu
@@ -92,13 +92,13 @@ python3 scripts/install-model.py small.en \
   --from-file /path/to/ggml-small.en.bin
 ```
 
-For NVIDIA acceleration, install a compatible NVIDIA driver and CUDA toolkit using the appropriate packages for your machine, then build the second engine:
+For GPU mode, install a compatible NVIDIA driver and CUDA toolkit using the appropriate packages for your machine, then build the CUDA engine (a CPU build is not required):
 
 ```sh
 sh scripts/build-engine.sh cuda
 ```
 
-The script checks for `nvcc`; it does not install or change GPU drivers. Newer GPUs, including the RTX 50 series, need a CUDA toolkit that supports their architecture. Keep the CPU build as the independent fallback.
+The script checks for `nvcc`; it does not install or change GPU drivers. RTX 50-series cards, including the RTX 5060 Ti, need CUDA 12.8 or newer for the native Blackwell build. Use an NVIDIA toolkit that supports your operating system and host compiler; see [NVIDIA's installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/). Check `nvcc --version`; the CUDA version shown by `nvidia-smi` is the driver's supported version, not proof that the compiler is installed. Ensure the toolkit's `bin` directory is on PATH before opening the app. For cross-compilation only, `SCRIBE_CUDA_ARCHITECTURES='86;120' sh scripts/build-engine.sh cuda` overrides native GPU detection; normal local setup targets the installed GPU. CPU and CUDA engines stay in separate directories.
 
 Start the desktop app:
 
@@ -106,17 +106,31 @@ Start the desktop app:
 sh run-scribe.sh
 ```
 
-Choose the machine preset, add or drop audio files, and click **Transcribe**. Change the output folder only if needed. Completed jobs offer **View** and **Copy text**, plus local playback through `ffplay`. **Open transcript folder** opens the saved files. Adding more audio does not retranscribe completed queue entries. Failed or cancelled entries can be retried. Closing during a job cancels it and waits for cleanup.
+Choose the machine preset and processor, add or drop audio files, and click **Transcribe**. Change the output folder only if needed. Completed jobs show CPU or the selected CUDA backend, such as **GPU (CUDA0)**, and offer **View** and **Copy text**, plus local playback through `ffplay`. **Open transcript folder** opens the saved files. Adding more audio does not retranscribe completed queue entries. Failed or cancelled entries can be retried. Closing during a job cancels it and waits for cleanup.
 
 ## CLI processor modes
 
 | Mode | Behaviour |
 | --- | --- |
 | Auto | Try the CUDA executable when installed; otherwise use CPU. If the CUDA attempt fails, retry once from the beginning using the same model on the CPU executable. Report the fallback in Details. |
-| GPU preferred | Run the CUDA executable only; do not retry with the separate CPU executable. |
+| GPU | Require a CUDA backend report from the pinned engine; stop on initialization failure or missing evidence, with no CPU retry. |
 | CPU | Run the CPU executable with GPU use disabled. |
 
-“GPU preferred” is deliberate: whisper.cpp manages backend selection internally. This wrapper does not yet prove that every operation ran on the GPU. A successful CUDA process is not reported as a measured GPU benchmark. Actual device reporting is a planned follow-up.
+GPU mode monitors the pinned engine's initialization diagnostics throughout the process, including logs longer than the displayed diagnostic tail. A CUDA-enabled binary alone is insufficient: the app requires a `whisper_backend_init_gpu: using CUDA… backend` report and rejects explicit initialization failures. This confirms CUDA backend selection; decoding, orchestration, and some engine operations still use CPU. It is not a per-kernel profiler or a performance benchmark. The desktop exposes CPU/GPU; automatic CPU fallback remains available only through CLI `--device auto`.
+
+## CUDA validation workflow
+
+The repository's `CUDA engine checks` workflow builds the pinned engine with CUDA 12.8 for Ampere (`86`) and Blackwell (`120`) on a standard Ubuntu GitHub runner. It installs compilation tools only, with no NVIDIA driver installation, Docker, or inference service. A successful compile is not a GPU hardware test.
+
+Its optional **hardware** input runs only when manually dispatched. It needs a registered self-hosted runner labelled `self-hosted`, `linux`, `x64`, `cuda`, with NVIDIA driver, CUDA toolkit, FFmpeg, Python 3.11+, CMake, Git and a C++ compiler already available. Use a trusted checkout on that runner. The job explicitly downloads both Mid and High models (about 3.5 GiB total), processes the pinned public JFK sample on each model, and uploads the public sample transcripts and a receipt containing model/engine/output hashes, backend reports, and elapsed times. It never selects personal audio. The hardware job is not automatically run for pull requests.
+
+After setting up Mid + GPU and High + GPU locally, run the same check without downloads:
+
+```sh
+python3 scripts/check-cuda.py --preset mid --preset high --output-dir /path/to/new-cuda-check
+```
+
+The output folder must be new. Use just `--preset mid` to check the smaller model first. A successful receipt requires a nonempty transcript and a CUDA backend report for each requested preset. Physical GPU inference remains unverified until this check is actually run on NVIDIA hardware.
 
 ## Batch command line
 
@@ -142,7 +156,7 @@ The preview accepts regular local files up to 4 GiB and decoded audio up to four
 
 Publishing uses an atomic, no-overwrite hard link on the destination filesystem. Use a local filesystem with hard-link support, such as ext4. FAT/exFAT output volumes are not supported by this preview; export to a local folder and copy the finished transcript to those volumes afterward.
 
-The GUI remembers only the selected preset and output directory in the user's XDG configuration directory (`~/.config/m4a-scribe/settings.json` by default). It keeps no persistent transcript database or audio history. The output folder contains the `.txt` files you chose to create. Runtime log content stays in the current window or temporary storage.
+The GUI remembers only the selected preset, CPU/GPU choice, and output directory in the user's XDG configuration directory (`~/.config/m4a-scribe/settings.json` by default). It keeps no persistent transcript database or audio history. The output folder contains the `.txt` files you chose to create. Runtime log content stays in the current window or temporary storage.
 
 ## Tests
 
