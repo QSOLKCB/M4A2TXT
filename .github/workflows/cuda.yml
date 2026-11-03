@@ -38,6 +38,9 @@ jobs:
     env:
       SCRIBE_CUDA_ARCHITECTURES: '86;120'
       SCRIBE_BUILD_JOBS: '2'
+      # Keep embedded intermediate filenames stable for byte-exact cache checks.
+      # Each source has its own CMake object path; build phases never overlap.
+      CUDAFLAGS: '--objdir-as-tempdir'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

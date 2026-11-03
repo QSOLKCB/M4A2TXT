@@ -103,7 +103,8 @@ def canaries():
             if compiler == "nvcc":
                 code += '__global__ void probe(int *p) { *p = VALUE + ADJUST; }\n'
             write_input(source, code)
-            arch = ["-gencode=arch=compute_86,code=sm_86", "-gencode=arch=compute_120a,code=sm_120a"] if suffix == ".cu" else []
+            arch = ["--objdir-as-tempdir", "-gencode=arch=compute_86,code=sm_86",
+                    "-gencode=arch=compute_120a,code=sm_120a"] if suffix == ".cu" else []
             command = [shutil.which(compiler), "-O2", *arch, "-c", str(source), "-o", str(obj)]
             for name, value, adjust, expected_hit in (
                 ("empty", 7, 1, False), ("unchanged_missing_output", 7, 1, True),
@@ -135,6 +136,7 @@ def canaries():
                         "actual_hit": actual_hit, "before": before, "after": after}))
                     raise RuntimeError(f"{compiler} {name}: parity/cache-state failure ({actual_hit=})")
                 records.append({"compiler": compiler, "case": name, "sha256": sha(obj), "hit": actual_hit})
+                (EVIDENCE / "canaries.json").write_text(encoded(records))
             obj.unlink()
             write_input(source, "this is not valid C++ or CUDA\n")
             entries_before = {str(p): sha(p) for p in (folder / "cache").rglob("*R") if p.is_file()}

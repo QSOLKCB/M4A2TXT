@@ -30,6 +30,8 @@ Trust/snapshot boundary: the CI checkout and installed toolchain are fixed durin
 
 CUDA canaries compare cached outputs against a fresh compiler invocation, including unchanged input, changed header/flags, restored input, missing outputs, compiler failure and corrupted cache contents. Forced-clean warm engine rebuilds must produce the same executable digest and report cache hits. Record actual ccache statistics and stage timings; requested worker counts are not measured concurrency.
 
+CI sets NVCC's documented [`--objdir-as-tempdir`](https://docs.nvidia.com/cuda/archive/12.8.1/cuda-compiler-driver-nvcc/index.html#objdir-as-tempdir-objtemp) option for stable intermediate filenames. The initial CUDA 12.8 canary correctly rejected unequal fresh/cached object bytes: their only differences were the process-dependent `tmpxft` filename bytes in the ELF symbol table. Object-directory temporaries fix that source of nondeterminism without weakening the comparison. Each translation unit has its own CMake output path; the three build phases execute sequentially, so variants of the same source never compile concurrently into one directory. This option affects CI temporary placement and build metadata, not Whisper's recognition settings.
+
 ## Evidence and limits
 
 The [test-stage record](evidence/opt-tests.json) contains all ten raw runs, environment details, test identities and tested-file hashes. Five alternating pairs executed the same 39 cases without skips. On that host, fresh median was **4.925 s**, reused median **3.670 s**: **25.5% less test wall time (1.34×)**. This is a local test-stage measurement, not an inference benchmark or a claim about every machine.
