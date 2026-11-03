@@ -1,3 +1,5 @@
 /dist/
+/.compiler-cache/
+/.cache-evidence/
 __pycache__/
 *.pyc

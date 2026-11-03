@@ -5,31 +5,43 @@ on:
     paths:
       - 'm4a-scribe/**'
       - '.github/workflows/cuda.yml'
+      - 'scripts/cuda-cache-check.py'
   push:
     branches: [main]
     paths:
       - 'm4a-scribe/**'
       - '.github/workflows/cuda.yml'
+      - 'scripts/cuda-cache-check.py'
   workflow_dispatch:
     inputs:
       hardware:
         description: 'Run Mid and High on a registered self-hosted Linux NVIDIA runner (downloads both models)'
         type: boolean
         default: false
+      force_cold:
+        description: 'Skip compiler-cache restoration for a fresh first build'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: cuda-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   compile:
     name: CUDA 12.8 build (Ampere and Blackwell)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       SCRIBE_CUDA_ARCHITECTURES: '86;120'
       SCRIBE_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install NVIDIA toolkit for compilation only
         run: |
           curl --fail --location --proto '=https' --tlsv1.2 \
@@ -37,11 +49,27 @@ jobs:
             --output /tmp/cuda-keyring.deb
           sudo dpkg -i /tmp/cuda-keyring.deb
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cuda-nvcc-12-8 libcublas-dev-12-8
+          sudo apt-get install -y --no-install-recommends cuda-nvcc-12-8 libcublas-dev-12-8 ccache
           echo /usr/local/cuda-12.8/bin >> "$GITHUB_PATH"
-      - name: Build pinned whisper.cpp CUDA engine
-        working-directory: m4a-scribe
-        run: sh scripts/build-engine.sh cuda
+      - name: Bind cache identity to the installed toolchain and build configuration
+        id: identity
+        run: python3 scripts/cuda-cache-check.py prepare
+      - name: Restore exact compiler cache
+        if: ${{ !inputs.force_cold }}
+        id: cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .compiler-cache
+          key: ${{ steps.identity.outputs.key }}
+      - name: Verify cache parity and build pinned CUDA engine three times
+        env:
+          RESTORED: ${{ steps.cache.outputs.cache-hit }}
+        run: |
+          if [ "$RESTORED" = true ]; then
+            python3 scripts/cuda-cache-check.py verify --restored
+          else
+            python3 scripts/cuda-cache-check.py verify
+          fi
       - name: Confirm CUDA build configuration
         working-directory: m4a-scribe
         run: |
@@ -50,6 +78,21 @@ jobs:
           grep '^CMAKE_CUDA_ARCHITECTURES:.*=86;120' .runtime/cuda/CMakeCache.txt
           .runtime/cuda/bin/whisper-cli --version
           echo 'CUDA compilation passed. This hosted runner has not performed GPU inference.'
+      - name: Save compiler cache after successful validation
+        if: ${{ success() && steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .compiler-cache
+          key: ${{ steps.identity.outputs.key }}
+      - name: Preserve timings, parity results and build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cuda-build-evidence
+          path: .cache-evidence/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30
 
   hardware:
     name: Mid and High CUDA hardware acceptance (manual)

@@ -2,10 +2,15 @@ name: Local app checks
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: app-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tests:
@@ -20,6 +25,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg xvfb xauth imagemagick
       - name: Package roundtrip tests
+        run: /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Verify fixture reuse against the complete fresh suite
+        working-directory: m4a-scribe
+        env:
+          SCRIBE_TEST_FRESH_FIXTURES: '1'
         run: /usr/bin/python3 -m unittest discover -s tests -v
       - name: Build and extract the application package
         run: |

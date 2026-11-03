@@ -14,6 +14,7 @@ import time
 import unittest
 from unittest import mock
 
+from audio_fixture import encode_fixture, fixture_bytes
 from scribe.core import Cancelled, Options, ScribeError, publish_text, run_process, transcribe
 
 TEXT = " Uh, no—no, that's what I said.\nTwo plus two is five. Café.\n"
@@ -21,6 +22,12 @@ TEXT = " Uh, no—no, that's what I said.\nTwo plus two is five. Café.\n"
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class PipelineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The immutable bytes live only for this test process. The fresh path
+        # remains available for parity checks and before/after measurement.
+        cls.audio_bytes = None if os.environ.get("SCRIBE_TEST_FRESH_FIXTURES") == "1" else fixture_bytes()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -30,9 +37,10 @@ class PipelineTests(unittest.TestCase):
         self.model = self.root / "test model.bin"
         self.model.write_bytes(b"fake model for adapter tests only")
         self.input = self.root / "audio ; $(touch INJECTED) ' café.m4a"
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-                        "-i", "sine=frequency=440:duration=0.25", "-c:a", "aac", str(self.input)],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if self.audio_bytes is None:
+            encode_fixture(self.input)
+        else:
+            self.input.write_bytes(self.audio_bytes)
         self.cpu = self.make_engine("cpu", """
 assert '--no-gpu' in sys.argv
 assert '--translate' not in sys.argv
@@ -262,6 +270,28 @@ pathlib.Path(sys.argv[sys.argv.index('--output-file')+1] + '.txt').write_text(TE
         decode = calls[0]
         self.assertEqual(decode[decode.index("-protocol_whitelist") + 1], "file,pipe")
         self.assertEqual(decode[decode.index("-f") + 1], "mov")
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
+class FixtureTests(unittest.TestCase):
+    def test_fixed_fixture_matches_fresh_ffmpeg_bytes(self):
+        cached = fixture_bytes()
+        self.assertIsInstance(cached, bytes)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fresh café ; fixture.m4a"
+            encode_fixture(path)
+            self.assertEqual(path.read_bytes(), cached)
+
+    def test_mutating_one_copy_preserves_other_copy_and_retained_bytes(self):
+        retained = fixture_bytes()
+        digest = hashlib.sha256(retained).hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a.m4a", Path(tmp) / "b.m4a"
+            a.write_bytes(retained)
+            b.write_bytes(retained)
+            a.write_bytes(b"corrupted by an isolated test")
+            self.assertEqual(b.read_bytes(), retained)
+            self.assertEqual(hashlib.sha256(retained).hexdigest(), digest)
 
 
 class ProcessTests(unittest.TestCase):

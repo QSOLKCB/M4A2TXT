@@ -2,11 +2,12 @@
 
 ## CPU/GPU controls 0.3.0 preview
 
-- **39 local tests passed**: 37 pipeline/desktop tests and two package tests. They cover all six preset/processor combinations, processor persistence and old-settings migration, selected-engine readiness, missing CUDA compiler, CUDA build failure without a CPU substitution, and separate CPU/CUDA setup.
+- **41 local tests passed**: 39 pipeline/desktop/fixture tests and two package tests. They cover all six preset/processor combinations, processor persistence and old-settings migration, selected-engine readiness, missing CUDA compiler, CUDA build failure without a CPU substitution, and separate CPU/CUDA setup.
 - A real pinned whisper.cpp CPU run with `tiny.en` and the public JFK sample re-encoded as M4A passed; transcript SHA-256 remained `e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3`. Supplying that real CPU-only binary as the GPU engine was rejected on its no-GPU report, with no new transcript and the prior output preserved.
 - Pipeline checks use real FFmpeg and controlled recognizers to verify CUDA backend reporting, long/split diagnostics, rejection of silent CPU execution or failed CUDA initialization, explicit GPU failure without CPU retry, and retained CLI auto fallback.
 - Native GTK checks exercise Mid + GPU and High + GPU routing, processor changes, persistence, job labels and disabling controls while busy. They use a fixture recognizer, not NVIDIA hardware.
-- The new CUDA workflow compiles the pinned whisper.cpp for Ampere and Blackwell with CUDA 12.8. Compilation and updated GTK results are pending until the PR checks run.
+- Native GTK and packaging [passed for the CPU/GPU implementation](https://github.com/QSOLKCB/M4A2TXT/actions/runs/41549854969); the OPT update repeats them. The new CUDA workflow compiles pinned whisper.cpp for Ampere and Blackwell with CUDA 12.8. Its compilation/cache-parity results are pending until the PR checks finish.
+- OPT invariant reuse preserves every test while generating immutable audio fixture bytes once per process, then copying them into private per-test files. Five alternating pairs of the complete 39-case suite passed under both fresh and reused modes: median 4.925 s versus 3.670 s (25.5% less test wall time on the measured host). The repository's `docs/OPT-ADAPTATION.md` and `docs/evidence/opt-tests.json` record the contract and raw measurements. This is not a transcription-speed claim.
 - Actual GPU inference, memory use, and speed remain unverified in this workspace: it has no NVIDIA GPU or CUDA compiler. The optional manual self-hosted hardware workflow and `scripts/check-cuda.py` exercise both real preset models and produce a receipt when run on suitable hardware.
 
 The following sections retain earlier-version evidence; their claims and remaining work refer to those historical builds.

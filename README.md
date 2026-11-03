@@ -33,6 +33,7 @@ After setup, transcription runs locally without a cloud service, chat interface,
 | [`m4a-scribe/`](m4a-scribe/) | Extracted app, setup scripts, tests, and documentation |
 | [`m4a-scribe/DESIGN.md`](m4a-scribe/DESIGN.md) | Architecture and implementation stages |
 | [`m4a-scribe/VALIDATION.md`](m4a-scribe/VALIDATION.md) | Executed checks and remaining validation |
+| [`docs/OPT-ADAPTATION.md`](docs/OPT-ADAPTATION.md) | OPT patterns, measured fixture reuse, and verified compiler-cache workflow |
 | [`archive/`](archive/) | Original uploaded bundle and its checksum |
 
 This remains a source preview. The test suite covers the local pipeline, desktop queue, cancellation, setup choices, and real GTK widget flows. See the validation record and GitHub Actions for executed results. GPU operation and full-length Audio Overview accuracy still require validation on the target machine.
