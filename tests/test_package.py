@@ -60,7 +60,7 @@ class PackageTests(unittest.TestCase):
         for name in ("m4a-scribe/models/private.m4a", "m4a-scribe/.runtime/engine", "m4a-scribe/transcript.txt", "archive"):
             self.assertFalse((folder / name).exists(), name)
         self.assertEqual((folder / "m4a2txt").stat().st_mode & 0o777, 0o755)
-        for args, expected in ((["--version"], "0.2.0-preview"), (["--help"], "Usage: ./m4a2txt"),
+        for args, expected in ((["--version"], "0.3.0-preview"), (["--help"], "Usage: ./m4a2txt"),
                                (["--cli", "--help"], "--model")):
             run = subprocess.run([str(folder / "m4a2txt"), *args], cwd=self.work,
                                  capture_output=True, text=True, timeout=10)

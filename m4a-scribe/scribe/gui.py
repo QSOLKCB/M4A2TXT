@@ -105,6 +105,26 @@ class ScribeWindow(Adw.ApplicationWindow):
             self.profile_buttons[profile.key] = choice
             choice.connect("toggled", self.profile_changed, profile.key)
             choices.append(choice)
+        processor = Gtk.Box(spacing=12)
+        caption = text_label("Process with", "heading")
+        caption.set_hexpand(True)
+        processor.append(caption)
+        devices = Gtk.Box(homogeneous=True)
+        devices.add_css_class("linked")
+        self.device_buttons = {}
+        first = None
+        for key, title in (("cpu", "CPU"), ("gpu", "GPU")):
+            choice = Gtk.ToggleButton(label=title)
+            choice.set_tooltip_text("Local CPU processing" if key == "cpu" else "Local NVIDIA CUDA processing")
+            if first:
+                choice.set_group(first)
+            else:
+                first = choice
+            choice.connect("toggled", self.device_changed, key)
+            self.device_buttons[key] = choice
+            devices.append(choice)
+        processor.append(devices)
+        content.append(processor)
         self.mode_note = text_label("", "dim-label")
         content.append(self.mode_note)
         self.setup_banner = Adw.Banner(title="", use_markup=False)
@@ -181,6 +201,7 @@ class ScribeWindow(Adw.ApplicationWindow):
             action.connect("activate", lambda _a, _v, cb=callback: cb())
             self.add_action(action)
             application.set_accels_for_action("win." + name, keys)
+        self.device_buttons[self.settings.device].set_active(True)
         self.profile_buttons[self.settings.profile].set_active(True)
         self.refresh()
         self.poll_id = GLib.timeout_add(100, self.poll)
@@ -202,6 +223,14 @@ class ScribeWindow(Adw.ApplicationWindow):
         if not widget.get_active():
             return
         self.settings.profile = key
+        if hasattr(self, "primary_button"):
+            self.save_settings()
+            self.refresh()
+
+    def device_changed(self, widget, key):
+        if not widget.get_active():
+            return
+        self.settings.device = key
         if hasattr(self, "primary_button"):
             self.save_settings()
             self.refresh()
@@ -288,11 +317,11 @@ class ScribeWindow(Adw.ApplicationWindow):
         if self.controller.busy or self.closing:
             return
         try:
-            if readiness(self.profile, self.root):
-                self.controller.setup(self.profile, self.root)
+            if readiness(self.profile, self.root, self.settings.device):
+                self.controller.setup(self.profile, self.root, device=self.settings.device)
             else:
                 self.settings.output.mkdir(parents=True, exist_ok=True)
-                self.controller.start(self.profile.options(self.settings.output, self.root))
+                self.controller.start(self.profile.options(self.settings.output, self.root, self.settings.device))
             self.progress_value = None
             self.save_settings()
             self.refresh()
@@ -305,9 +334,9 @@ class ScribeWindow(Adw.ApplicationWindow):
 
     def refresh(self):
         busy = self.controller.busy
-        missing = readiness(self.profile, self.root)
-        self.mode_note.set_text(processor_note(self.profile, self.root))
-        self.setup_banner.set_title(f"One-time setup for {self.profile.title}: up to {self.profile.size} of model data. No audio is uploaded.")
+        missing = readiness(self.profile, self.root, self.settings.device)
+        self.mode_note.set_text(processor_note(self.profile, self.root, self.settings.device))
+        self.setup_banner.set_title(f"One-time setup for {self.profile.title} / {self.settings.device.upper()}: up to {self.profile.size} of model data. No audio is uploaded.")
         self.setup_banner.set_revealed(bool(missing) and not busy)
         self.output_row.set_subtitle(str(self.settings.output))
         self.queue_heading.set_text(f"Audio files · {len(self.controller.jobs)}" if self.controller.jobs else "Audio files")
@@ -332,10 +361,11 @@ class ScribeWindow(Adw.ApplicationWindow):
                 self.rows[job.id] = (row, view, remove)
                 self.listbox.append(row)
             row, view, remove = self.rows[job.id]
-            row.set_subtitle(job.status if not job.error else f"Failed — {job.error.splitlines()[0]}")
+            row.set_subtitle(f"{job.status} · {job.result.device}" if job.result else (
+                job.status if not job.error else f"Failed — {job.error.splitlines()[0]}"))
             view.set_visible(job.result is not None)
             remove.set_sensitive(not busy)
-        for choice in self.profile_buttons.values():
+        for choice in (*self.profile_buttons.values(), *self.device_buttons.values()):
             choice.set_sensitive(not busy)
         for widget in (self.add_button, self.folder_button, self.clear_button):
             widget.set_sensitive(not busy)
@@ -343,7 +373,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.cancel_button.set_visible(busy)
         self.open_button.set_sensitive(self.settings.output.is_dir())
         self.primary_button.set_label("Setting up…" if busy and self.controller.operation == "setup" else (
-            "Transcribing…" if busy else f"Set up {self.profile.title}" if missing else "Transcribe"))
+            "Transcribing…" if busy else f"Set up {self.settings.device.upper()}" if missing else "Transcribe"))
         self.primary_button.set_sensitive(not busy and (bool(missing) or bool(self.controller.pending)))
         self.progress.set_visible(busy)
         if not busy:
@@ -402,7 +432,7 @@ class ScribeWindow(Adw.ApplicationWindow):
 
     def show_details(self):
         text = "\n\n".join(self.controller.logs) or "No errors or operations yet."
-        text += f"\n\nM4A2TXT {__version__}\nMode: {self.profile.title}\nModel: {self.profile.model}\n{processor_note(self.profile, self.root)}"
+        text += f"\n\nM4A2TXT {__version__}\nPreset: {self.profile.title}\nProcessor: {self.settings.device.upper()}\nModel: {self.profile.model}\n{processor_note(self.profile, self.root, self.settings.device)}"
         text += "\n\nFirst-time system packages on Ubuntu:\nsudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg git cmake build-essential\n\nThe Set up button downloads the selected model and builds missing local engines. NVIDIA acceleration also needs a compatible driver and CUDA toolkit."
         return self.text_window("Details", text, "Local setup and diagnostics")[0]
 

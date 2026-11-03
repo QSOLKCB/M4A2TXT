@@ -1,16 +1,16 @@
 # M4A2TXT
 
-Local M4A-to-text conversion using your own CPU or GPU. The extracted **M4A Scribe 0.2.0-preview** provides a GTK 4 / libadwaita desktop with **Laptop / Mid / High** presets and a batch CLI backed by Whisper.
+Local M4A-to-text conversion using your own CPU or GPU. **M4A Scribe 0.3.0-preview** provides a GTK 4 / libadwaita desktop with **Laptop / Mid / High** model presets, an independent **CPU / GPU** toggle, and a batch CLI backed by Whisper.
 
 The source lives in [`m4a-scribe/`](m4a-scribe/). Start with its [setup and usage guide](m4a-scribe/README.md).
 
 ![Native GTK desktop with Laptop, Mid, and High presets](docs/gtk-preview.png)
 
-Actual GTK window from the [automated UI check](https://github.com/QSOLKCB/M4A2TXT/actions/runs/41537925273), with example audio. This shows the compact layout and a completed fixture job; it is not a GPU performance result.
+Earlier 0.2.0 GTK window from the [automated UI check](https://github.com/QSOLKCB/M4A2TXT/actions/runs/41537925273), with example audio. The current version adds a CPU/GPU toggle beneath the presets. This screenshot is not a GPU performance result.
 
 ## Get started
 
-Download the [tested Linux package](packages/README.md), extract it, and open a terminal in the extracted folder.
+Use this source checkout, or download the `m4a2txt-linux` artifact from a successful [Local app checks run](https://github.com/QSOLKCB/M4A2TXT/actions/workflows/tests.yml) for the desired commit and extract it. The [earlier 0.2.0 package](packages/README.md) is preserved but does not include the CPU/GPU toggle.
 
 From the repository root, or the top of an extracted [Linux package](PACKAGING.md):
 
@@ -18,7 +18,9 @@ From the repository root, or the top of an extracted [Linux package](PACKAGING.m
 ./m4a2txt
 ```
 
-Select **Laptop**, **Mid**, or **High**, use the clearly labelled one-time setup button if needed, and drop audio files onto the window.
+Select **Laptop**, **Mid**, or **High**, then choose **CPU** or **GPU**. Use the clearly labelled one-time setup button if needed, and drop audio files onto the window. **Mid + GPU** uses quantized Whisper turbo on CUDA; **High + GPU** uses the full large-v3 model on CUDA. CPU uses the same selected model with GPU execution disabled. The processor choice is remembered and does not change when switching presets.
+
+GPU mode requires a compatible NVIDIA driver and CUDA toolkit for setup. It stops on a GPU error instead of silently retrying on CPU. Successful jobs show the reported CUDA backend. See the [CUDA workflow and hardware check](m4a-scribe/README.md#cuda-validation-workflow).
 
 On Ubuntu 24.04+, run `./install-deps.sh` once if the native dependencies are missing. `./m4a2txt --check` checks your local setup without downloading anything. See [package instructions](PACKAGING.md) for extraction, verification, and rebuilding the deterministic archive. The package uses your operating system's Python, GTK and FFmpeg; it installs the selected model and builds its engine during explicit first-time setup.
 

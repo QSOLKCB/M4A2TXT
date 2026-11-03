@@ -23,20 +23,21 @@ class Profile:
     description: str
     model: str
     size: str
-    device: str
     threads: int
 
-    def options(self, output: Path, root: Path = ROOT) -> Options:
+    def options(self, output: Path, root: Path = ROOT, device: str = "cpu") -> Options:
+        if device not in {"cpu", "gpu"}:
+            raise ScribeError("Choose CPU or GPU processing.")
         return Options(root / "models" / f"ggml-{self.model}.bin", output,
-                       device=self.device, threads=min(self.threads, os.cpu_count() or 1),
+                       device=device, threads=min(self.threads, os.cpu_count() or 1),
                        cpu_engine=root / ".runtime/cpu/bin/whisper-cli",
                        gpu_engine=root / ".runtime/cuda/bin/whisper-cli")
 
 
 PROFILES = {
-    "laptop": Profile("laptop", "Laptop", "CPU", "small.en", "466 MiB", "cpu", 4),
-    "mid": Profile("mid", "Mid", "Low-memory GPU", "large-v3-turbo-q5_0", "547 MiB", "auto", 4),
-    "high": Profile("high", "High", "Larger GPU model", "large-v3", "2.9 GiB", "auto", 8),
+    "laptop": Profile("laptop", "Laptop", "Small model", "small.en", "466 MiB", 4),
+    "mid": Profile("mid", "Mid", "Lower GPU memory", "large-v3-turbo-q5_0", "547 MiB", 4),
+    "high": Profile("high", "High", "Full-size model", "large-v3", "2.9 GiB", 8),
 }
 
 
@@ -44,55 +45,52 @@ def executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-def readiness(profile: Profile, root: Path = ROOT) -> list[str]:
-    options = profile.options(Path.home(), root)
+def readiness(profile: Profile, root: Path = ROOT, device: str = "cpu") -> list[str]:
+    options = profile.options(Path.home(), root, device)
     missing = []
     if not shutil.which("ffmpeg"):
         missing.append("FFmpeg")
-    if not executable(options.cpu_engine):
-        missing.append("local engine")
+    engine = options.gpu_engine if device == "gpu" else options.cpu_engine
+    if not executable(engine):
+        missing.append("CUDA engine" if device == "gpu" else "CPU engine")
     if not options.model.is_file() or options.model.stat().st_size == 0:
         missing.append("model download")
     return missing
 
 
-def processor_note(profile: Profile, root: Path = ROOT) -> str:
-    if profile.device == "cpu":
+def processor_note(profile: Profile, root: Path = ROOT, device: str = "cpu") -> str:
+    if device == "cpu":
         return "Uses your CPU. Audio stays on this computer."
-    if executable(profile.options(Path.home(), root).gpu_engine):
-        return "Uses the GPU when available, with CPU fallback."
-    return "GPU engine not installed. This mode will use the CPU."
+    if executable(profile.options(Path.home(), root, device).gpu_engine):
+        return "Uses your NVIDIA GPU via CUDA. GPU errors stop the job; select CPU to switch."
+    return "Set up the CUDA engine to use your NVIDIA GPU. A compatible driver and CUDA toolkit are required."
 
 
 def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[str], None],
-                  root: Path = ROOT) -> None:
+                  root: Path = ROOT, device: str = "cpu") -> None:
     """Explicit setup only. Normal transcription never calls this function."""
     if not shutil.which("ffmpeg"):
         raise ScribeError("Install FFmpeg and the system packages listed in the setup guide first.")
-    options = profile.options(Path.home(), root)
-    needs_build = not executable(options.cpu_engine) or (
-        profile.device == "auto" and shutil.which("nvcc") and not executable(options.gpu_engine))
+    options = profile.options(Path.home(), root, device)
+    engine = options.gpu_engine if device == "gpu" else options.cpu_engine
+    needs_build = not executable(engine)
+    if needs_build and device == "gpu" and not shutil.which("nvcc"):
+        raise ScribeError("CUDA compiler nvcc is missing. Install a compatible NVIDIA CUDA toolkit, "
+                          "then reopen the app, or select CPU. RTX 50-series cards need CUDA 12.8 or newer.")
     if needs_build:
         missing = [name for name in ("git", "cmake", "c++") if not shutil.which(name)]
         if missing:
             raise ScribeError("Install the setup packages first. Missing: " + ", ".join(missing))
     with tempfile.TemporaryDirectory(prefix="m4a2txt-setup-") as tmp:
         work = Path(tmp)
-        if not executable(options.cpu_engine):
-            event("Building the local CPU engine…")
-            run_process(["sh", str(root / "scripts/build-engine.sh"), "cpu"], work, cancel, event, "Engine setup")
-        if profile.device == "auto" and shutil.which("nvcc") and not executable(options.gpu_engine):
-            event("Building the optional GPU engine…")
-            try:
-                run_process(["sh", str(root / "scripts/build-engine.sh"), "cuda"], work, cancel, event, "GPU setup")
-            except Cancelled:
-                raise
-            except ScribeError as exc:
-                event(f"GPU setup failed; the CPU engine remains available.\n{exc}")
+        if needs_build:
+            mode = "cuda" if device == "gpu" else "cpu"
+            event(f"Building the local {mode.upper()} engine…")
+            run_process(["sh", str(root / "scripts/build-engine.sh"), mode], work, cancel, event, "Engine setup")
         event(f"Installing the {profile.title} model ({profile.size})…")
         run_process([sys.executable, str(root / "scripts/install-model.py"), profile.model,
                      "--download"], work, cancel, event, "Model setup")
-    if missing := readiness(profile, root):
+    if missing := readiness(profile, root, device):
         raise ScribeError("Setup incomplete: " + ", ".join(missing))
 
 
@@ -100,12 +98,15 @@ class Settings:
     def __init__(self, path: Path | None = None, default_output: Path | None = None):
         self.path = path or Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "m4a-scribe/settings.json"
         self.profile = "laptop"
+        self.device = "cpu"
         self.output = default_output or Path.home() / "Documents/Transcripts"
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 if data.get("profile") in PROFILES:
                     self.profile = data["profile"]
+                if data.get("device") in ("cpu", "gpu"):
+                    self.device = data["device"]
                 output = data.get("output")
                 if isinstance(output, str) and output and Path(output).is_absolute():
                     self.output = Path(output)
@@ -117,7 +118,7 @@ class Settings:
         fd, name = tempfile.mkstemp(prefix=".settings-", dir=self.path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as out:
-                json.dump({"profile": self.profile, "output": str(self.output)}, out, indent=2)
+                json.dump({"profile": self.profile, "device": self.device, "output": str(self.output)}, out, indent=2)
                 out.write("\n")
             os.replace(name, self.path)
         finally:
@@ -221,14 +222,14 @@ class BatchController:
         self.thread = threading.Thread(target=work, daemon=False)
         self.thread.start()
 
-    def setup(self, profile: Profile, root: Path = ROOT, installer=setup_profile) -> None:
+    def setup(self, profile: Profile, root: Path = ROOT, installer=setup_profile, device: str = "cpu") -> None:
         self._begin("setup")
 
         def work():
             success = False
             try:
                 installer(profile, self.cancel,
-                          lambda text: self.events.put(("message", text)), root)
+                          lambda text: self.events.put(("message", text)), root, device)
                 success = True
             except Cancelled:
                 pass

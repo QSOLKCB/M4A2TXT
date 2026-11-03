@@ -37,7 +37,7 @@ def main():
         output.mkdir()
         calls = []
         def recognizer(source, options, cancel, event):
-            calls.append(source.name)
+            calls.append((source.name, options.device, options.model.name))
             if source.name == "Slow.m4a":
                 event("Transcribing locally — CPU…")
                 if cancel.wait(5):
@@ -46,7 +46,7 @@ def main():
             event("Whisper: 50%")
             target = output / (source.stem + ".txt")
             target.write_text("Welcome to this deep dive. Today we're looking at how local transcription works.\n", encoding="utf-8")
-            return Result(target, "CPU", .1, "fixture", False)
+            return Result(target, "GPU (CUDA0)" if options.device == "gpu" else "CPU", .1, "fixture", False)
         controller = BatchController(recognizer)
         settings = Settings(root / "settings.json", output)
         app = ScribeApplication(controller=controller, settings=settings, root=root)
@@ -66,7 +66,9 @@ def main():
                                 "+repage", str(args.screenshots / name)], check=True)
 
         assert list(win.profile_buttons) == ["laptop", "mid", "high"]
-        assert win.primary_button.get_label() == "Set up Laptop"
+        assert list(win.device_buttons) == ["cpu", "gpu"]
+        assert settings.device == "cpu"
+        assert win.primary_button.get_label() == "Set up CPU"
         screenshot("01-empty-setup.png")
         for profile in PROFILES.values():
             options = profile.options(output, root)
@@ -84,6 +86,16 @@ def main():
         assert settings.profile == "mid"
         assert "CPU" in win.mode_note.get_text()
         assert not win.primary_button.get_sensitive()
+        win.device_buttons["gpu"].set_active(True)
+        spin()
+        assert settings.device == "gpu"
+        assert sum(choice.get_active() for choice in win.device_buttons.values()) == 1
+        assert win.primary_button.get_label() == "Set up GPU"
+        gpu = root / ".runtime/cuda/bin/whisper-cli"
+        gpu.parent.mkdir(parents=True)
+        gpu.write_text("CUDA fixture; no hardware inference")
+        gpu.chmod(0o755)
+        win.refresh()
         source = root / "Deep Dive — Episode 01.m4a"
         source.write_bytes(b"fixture")
         filelist = Gdk.FileList.new_from_list([Gio.File.new_for_path(str(source))])
@@ -95,7 +107,8 @@ def main():
         spin(lambda: not controller.busy, seconds=5)
         assert controller.jobs[0].status == "Saved"
         assert not win.primary_button.get_sensitive()
-        assert calls == [source.name]
+        assert calls == [(source.name, "gpu", "ggml-large-v3-turbo-q5_0.bin")]
+        assert "GPU (CUDA0)" in win.rows[controller.jobs[0].id][0].get_subtitle()
         transcript = win.show_transcript(controller.jobs[0])
         assert transcript is not None
         screenshot("03-transcript.png")
@@ -105,6 +118,21 @@ def main():
         spin()
         details.close()
         spin()
+        # Changing quality preserves the explicit processor selection.
+        win.profile_buttons["high"].set_active(True)
+        assert settings.device == "gpu"
+        high = root / "High GPU.m4a"
+        high.write_bytes(b"fixture")
+        win.add_paths([high])
+        win.primary_button.emit("clicked")
+        spin(lambda: not controller.busy, seconds=5)
+        assert calls[-1] == (high.name, "gpu", "ggml-large-v3.bin")
+        assert len(calls) == 2
+        win.device_buttons["cpu"].set_active(True)
+        spin()
+        assert settings.profile == "high"
+        assert settings.device == "cpu"
+        assert Settings(settings.path).device == "cpu"
         # Native async dialogs must handle cancellation without changing the queue.
         win.choose_audio()
         spin()
@@ -112,7 +140,7 @@ def main():
             if dialog is not win and dialog.get_visible():
                 dialog.close()
         spin()
-        assert len(controller.jobs) == 1
+        assert len(controller.jobs) == 2
         win.set_default_size(540, 600)
         screenshot("04-compact.png")
         # Closing during work must request cancellation and reap the worker.
@@ -120,16 +148,18 @@ def main():
         slow.write_bytes(b"fixture")
         win.add_paths([slow])
         win.primary_button.emit("clicked")
-        spin(lambda: slow.name in calls, seconds=2)
+        spin(lambda: any(call[0] == slow.name for call in calls), seconds=2)
         assert controller.busy
+        assert calls[-1] == (slow.name, "cpu", "ggml-large-v3.bin")
+        assert all(not choice.get_sensitive() for choice in win.device_buttons.values())
         win.close()
         spin(lambda: not controller.busy and win.poll_id is None, seconds=5)
         assert not controller.busy
         assert controller.jobs[0].result.output.is_file()
         assert not (output / "Slow.txt").exists()
-        assert controller.jobs[1].status == "Cancelled"
+        assert controller.jobs[2].status == "Cancelled"
         app.quit()
-        print("GTK smoke PASS: presets, setup state, file drop, queue, completion, preview, dialogs, cancellation, close.")
+        print("GTK smoke PASS: presets, CPU/GPU selection, Mid/High GPU routing, setup state, file drop, queue, completion, preview, dialogs, cancellation, close. Recognizer is a fixture; no hardware inference.")
 
 
 if __name__ == "__main__":

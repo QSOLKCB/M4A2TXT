@@ -1,0 +1,80 @@
+name: CUDA engine checks
+
+on:
+  pull_request:
+    paths:
+      - 'm4a-scribe/**'
+      - '.github/workflows/cuda.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'm4a-scribe/**'
+      - '.github/workflows/cuda.yml'
+  workflow_dispatch:
+    inputs:
+      hardware:
+        description: 'Run Mid and High on a registered self-hosted Linux NVIDIA runner (downloads both models)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: CUDA 12.8 build (Ampere and Blackwell)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SCRIBE_CUDA_ARCHITECTURES: '86;120'
+      SCRIBE_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install NVIDIA toolkit for compilation only
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb \
+            --output /tmp/cuda-keyring.deb
+          sudo dpkg -i /tmp/cuda-keyring.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-nvcc-12-8 libcublas-dev-12-8
+          echo /usr/local/cuda-12.8/bin >> "$GITHUB_PATH"
+      - name: Build pinned whisper.cpp CUDA engine
+        working-directory: m4a-scribe
+        run: sh scripts/build-engine.sh cuda
+      - name: Confirm CUDA build configuration
+        working-directory: m4a-scribe
+        run: |
+          test -x .runtime/cuda/bin/whisper-cli
+          grep '^GGML_CUDA:BOOL=ON$' .runtime/cuda/CMakeCache.txt
+          grep '^CMAKE_CUDA_ARCHITECTURES:.*=86;120' .runtime/cuda/CMakeCache.txt
+          .runtime/cuda/bin/whisper-cli --version
+          echo 'CUDA compilation passed. This hosted runner has not performed GPU inference.'
+
+  hardware:
+    name: Mid and High CUDA hardware acceptance (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.hardware
+    runs-on: [self-hosted, linux, x64, cuda]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check installed NVIDIA prerequisites
+        run: |
+          nvidia-smi
+          nvcc --version
+          ffmpeg -version
+      - name: Build the local CUDA engine and explicitly install both models
+        working-directory: m4a-scribe
+        run: |
+          sh scripts/build-engine.sh cuda
+          python3 scripts/install-model.py large-v3-turbo-q5_0 --download
+          python3 scripts/install-model.py large-v3 --download
+      - name: Transcribe the public sample with both presets
+        working-directory: m4a-scribe
+        run: python3 scripts/check-cuda.py --preset mid --preset high --output-dir "$RUNNER_TEMP/m4a2txt-cuda-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Preserve hardware receipt and public sample transcripts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cuda-hardware-evidence
+          path: '${{ runner.temp }}/m4a2txt-cuda-${{ github.run_id }}-${{ github.run_attempt }}/'
+          retention-days: 30

@@ -29,6 +29,35 @@ class Cancelled(ScribeError):
     pass
 
 
+class CudaMonitor:
+    """Check backend diagnostics from the pinned whisper.cpp, not transcript text.
+
+    A CUDA build can silently run on CPU. Stop on its explicit initialization
+    failure and require a CUDA backend report before publishing a GPU result.
+    This confirms backend selection, not a claim that every operation uses CUDA.
+    """
+    def __init__(self):
+        self.pending = b""
+        self.backend = None
+
+    def feed(self, chunk: bytes) -> None:
+        lines = (self.pending + chunk).split(b"\n")
+        self.pending = lines.pop()[-2048:]
+        for line in lines:
+            if line.startswith(b"whisper_backend_init_gpu: no GPU found") or (
+                    line.startswith(b"whisper_backend_init_gpu: failed to initialize ")):
+                raise ScribeError("Whisper could not initialize a GPU backend.")
+            match = re.fullmatch(rb"whisper_backend_init_gpu: using (CUDA[0-9]+) backend\s*", line)
+            if match:
+                self.backend = match[1].decode("ascii")
+
+    def finish(self) -> str:
+        self.feed(b"\n")
+        if self.backend is None:
+            raise ScribeError("Whisper did not report an active CUDA backend. The transcript was not saved.")
+        return self.backend
+
+
 @dataclass(frozen=True)
 class Options:
     model: Path
@@ -81,7 +110,8 @@ def _stop(process: subprocess.Popen) -> None:
 
 
 def run_process(argv: list[str], work: Path, cancel: threading.Event,
-                event: Callable[[str], None], label: str) -> str:
+                event: Callable[[str], None], label: str,
+                observer: Callable[[bytes], None] | None = None) -> str:
     """Use files for child output to avoid pipe deadlock; never invoke a shell."""
     check_cancel(cancel)
     with tempfile.TemporaryFile(dir=work) as log:
@@ -94,13 +124,26 @@ def run_process(argv: list[str], work: Path, cancel: threading.Event,
             raise ScribeError(f"Cannot start {label}: {exc}") from exc
         try:
             last_progress = -1
+            observed = 0
+            def inspect_log():
+                nonlocal observed
+                size = os.fstat(log.fileno()).st_size
+                if size > 64 * 1024 * 1024:
+                    raise ScribeError(f"{label} produced an excessive diagnostic log.")
+                if observer and hasattr(os, "pread"):
+                    while observed < size:
+                        chunk = os.pread(log.fileno(), min(65536, size - observed), observed)
+                        if not chunk:
+                            break
+                        observed += len(chunk)
+                        observer(chunk)
+                return size
+
             while process.poll() is None:
                 if cancel.wait(0.1):
                     raise Cancelled("Cancelled; no final transcript was saved.")
                 # pread does not alter the file position shared with the child.
-                size = os.fstat(log.fileno()).st_size
-                if size > 64 * 1024 * 1024:
-                    raise ScribeError(f"{label} produced an excessive diagnostic log.")
+                size = inspect_log()
                 if hasattr(os, "pread") and size:
                     tail = os.pread(log.fileno(), min(size, 8192), max(0, size - 8192))
                     matches = re.findall(rb"progress\s*=\s*(\d+)%", tail)
@@ -110,7 +153,12 @@ def run_process(argv: list[str], work: Path, cancel: threading.Event,
                             last_progress = progress
                             event(f"{label}: {progress}%")
             check_cancel(cancel)
-            log.seek(max(0, os.fstat(log.fileno()).st_size - 16384))
+            size = inspect_log()
+            if observer and not hasattr(os, "pread"):
+                log.seek(0)
+                while chunk := log.read(65536):
+                    observer(chunk)
+            log.seek(max(0, size - 16384))
             diagnostic = log.read().decode("utf-8", errors="replace")
             if process.returncode:
                 raise ScribeError(f"{label} failed (exit {process.returncode}).\n{diagnostic[-4000:]}")
@@ -236,9 +284,9 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
     gpu = options.gpu_engine.expanduser().resolve()
     candidates = [("CPU", cpu)]
     if options.device == "gpu":
-        candidates = [("GPU preferred", gpu)]
+        candidates = [("GPU", gpu)]
     elif options.device == "auto" and gpu.is_file() and os.access(gpu, os.X_OK):
-        candidates = [("GPU preferred", gpu), ("CPU fallback", cpu)]
+        candidates = [("GPU", gpu), ("CPU fallback", cpu)]
     first_engine = candidates[0][1]
     if not first_engine.is_file() or not os.access(first_engine, os.X_OK):
         raise ScribeError(f"Engine is missing or not executable: {first_engine}\nSee scripts/build-engine.sh in the README.")
@@ -259,14 +307,21 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
             command = [str(engine), "--model", str(model), "--file", str(wav),
                        "--language", options.language, "--threads", str(options.threads),
                        "--output-txt", "--output-file", str(work / "transcript"),
-                       "--print-progress", "--no-prints", "--temperature", "0",
+                       "--print-progress", "--temperature", "0",
                        "--no-fallback"]
+            monitor = CudaMonitor() if device == "GPU" else None
             if device.startswith("CPU"):
-                command.append("--no-gpu")
+                command.extend(["--no-gpu", "--no-prints"])
             try:
                 if not engine.is_file() or not os.access(engine, os.X_OK):
                     raise ScribeError(f"Engine is missing or not executable: {engine}")
-                run_process(command, work, cancel, event, "Whisper")
+                if monitor:
+                    run_process(command, work, cancel, event, "Whisper", observer=monitor.feed)
+                    backend = monitor.finish()
+                    device = f"GPU ({backend})"
+                    event(f"CUDA backend confirmed: {backend}.")
+                else:
+                    run_process(command, work, cancel, event, "Whisper")
                 if not textfile.is_file():
                     raise ScribeError("Whisper exited without producing a transcript.")
                 # Validate text encoding but do not rewrite the returned bytes.
@@ -277,6 +332,10 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
                 raise
             except ScribeError as exc:
                 if attempt + 1 == len(candidates):
+                    if options.device == "gpu":
+                        raise ScribeError("GPU transcription failed. Check the NVIDIA driver and CUDA setup, "
+                                          "try Mid for lower memory use, or select CPU. No CPU retry was started.\n"
+                                          + str(exc)) from exc
                     raise
                 event(f"GPU engine failed; retrying this file from the start on CPU.\n{exc}")
         check_cancel(cancel)

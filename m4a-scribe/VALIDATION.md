@@ -1,5 +1,16 @@
 # Validation
 
+## CPU/GPU controls 0.3.0 preview
+
+- **39 local tests passed**: 37 pipeline/desktop tests and two package tests. They cover all six preset/processor combinations, processor persistence and old-settings migration, selected-engine readiness, missing CUDA compiler, CUDA build failure without a CPU substitution, and separate CPU/CUDA setup.
+- A real pinned whisper.cpp CPU run with `tiny.en` and the public JFK sample re-encoded as M4A passed; transcript SHA-256 remained `e1b5ff063babc31a41e7899cb6f5b9ba512d6557ee79d365838941b7b2c8b4c3`. Supplying that real CPU-only binary as the GPU engine was rejected on its no-GPU report, with no new transcript and the prior output preserved.
+- Pipeline checks use real FFmpeg and controlled recognizers to verify CUDA backend reporting, long/split diagnostics, rejection of silent CPU execution or failed CUDA initialization, explicit GPU failure without CPU retry, and retained CLI auto fallback.
+- Native GTK checks exercise Mid + GPU and High + GPU routing, processor changes, persistence, job labels and disabling controls while busy. They use a fixture recognizer, not NVIDIA hardware.
+- The new CUDA workflow compiles the pinned whisper.cpp for Ampere and Blackwell with CUDA 12.8. Compilation and updated GTK results are pending until the PR checks run.
+- Actual GPU inference, memory use, and speed remain unverified in this workspace: it has no NVIDIA GPU or CUDA compiler. The optional manual self-hosted hardware workflow and `scripts/check-cuda.py` exercise both real preset models and produce a receipt when run on suitable hardware.
+
+The following sections retain earlier-version evidence; their claims and remaining work refer to those historical builds.
+
 ## GTK update 0.2.0 preview
 
 - **28 local regression tests passed**, including the original 19 pipeline checks and nine desktop-state tests.
