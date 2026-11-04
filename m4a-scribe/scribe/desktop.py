@@ -105,8 +105,14 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
         progress = SetupOutput(event)
         command = ([sys.executable, "--install-model"] if FROZEN else
                    [sys.executable, str(RESOURCE_ROOT / "scripts/install-model.py")])
-        run_process([*command, profile.model, "--download", "--directory", str(root / "models")],
-                    work, cancel, event, "Model setup", observer=progress.feed)
+        models = root / "models"
+        models.mkdir(parents=True, exist_ok=True)
+        # Windows termination does not run the child's finally blocks. The
+        # parent owns staging, on the destination filesystem for atomic linking.
+        with tempfile.TemporaryDirectory(prefix=".setup-", dir=models) as staging:
+            run_process([*command, profile.model, "--download", "--directory", str(models),
+                         "--staging-directory", staging],
+                        work, cancel, event, "Model setup", observer=progress.feed)
         progress.finish()
     if missing := readiness(profile, root, device):
         raise ScribeError("Setup incomplete: " + ", ".join(missing))

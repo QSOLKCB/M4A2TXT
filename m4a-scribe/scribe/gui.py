@@ -192,7 +192,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         output_box.add_css_class("boxed-list")
         output_box.append(self.output_row)
         content.append(output_box)
-        content.append(text_label("Plain text, with no summaries or rewriting. Check important passages against the audio.", "caption"))
+        content.append(text_label("Output preserves the recognizer’s text. Check important passages and caption timings against the audio.", "caption"))
 
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                          margin_top=12, margin_bottom=12, margin_start=22, margin_end=22)

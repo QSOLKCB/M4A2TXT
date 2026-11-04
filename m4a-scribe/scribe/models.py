@@ -57,6 +57,7 @@ def main(argv=None):
     source.add_argument("--download", action="store_true")
     source.add_argument("--from-file", type=Path)
     parser.add_argument("--directory", type=Path, default=ROOT / "models")
+    parser.add_argument("--staging-directory", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     directory = args.directory.expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
@@ -71,7 +72,8 @@ def main(argv=None):
                 print(f"Already installed: {target}\nSHA-256: {sha256}")
                 return 0
         parser.error(f"An existing model differs from the expected file: {target}. It has not been replaced.")
-    fd, temporary = tempfile.mkstemp(prefix=".model-", suffix=".partial", dir=directory)
+    staging = args.staging_directory.expanduser().resolve() if args.staging_directory else directory
+    fd, temporary = tempfile.mkstemp(prefix=".model-", suffix=".partial", dir=staging)
     staged = Path(temporary)
     try:
         sha1, sha256_hash = hashlib.sha1(), hashlib.sha256()
