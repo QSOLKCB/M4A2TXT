@@ -45,7 +45,8 @@ class PipelineTests(unittest.TestCase):
 assert '--no-gpu' in sys.argv
 assert '--translate' not in sys.argv
 assert '--prompt' not in sys.argv
-assert '--no-fallback' in sys.argv
+assert '--no-fallback' not in sys.argv
+assert sys.argv[sys.argv.index('--max-context') + 1] == '0'
 assert '--vad' not in sys.argv
 with wave.open(sys.argv[sys.argv.index('--file')+1], 'rb') as w:
     assert (w.getnchannels(), w.getframerate(), w.getsampwidth()) == (1, 16000, 2)

@@ -307,8 +307,11 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
             command = [str(engine), "--model", str(model), "--file", str(wav),
                        "--language", options.language, "--threads", str(options.threads),
                        "--output-txt", "--output-file", str(work / "transcript"),
-                       "--print-progress", "--temperature", "0",
-                       "--no-fallback"]
+                       "--print-progress", "--temperature", "0", "--max-context", "0"]
+            # Keep Whisper's temperature retries for repetitive/low-confidence
+            # decoding. These stay on the selected device; GPU mode still never
+            # retries on CPU. Avoid carrying a bad text prediction into later
+            # audio windows, where it can otherwise repeat for the rest of a file.
             monitor = CudaMonitor() if device == "GPU" else None
             if device.startswith("CPU"):
                 command.extend(["--no-gpu", "--no-prints"])

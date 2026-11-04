@@ -52,7 +52,7 @@ Atomic hard-link publication avoids the race in “check whether a name exists, 
 
 ## Recognition policy
 
-The initial defaults are English transcription, temperature zero, temperature fallback disabled, no initial prompt, no grammar constraints, no VAD, and no translation. Do not introduce cleanup by a second language model. These choices make the app's transformations inspectable; they are not a promise of exact recognition or bit-identical results across CPU and GPU.
+The defaults are English transcription, initial temperature zero with Whisper's standard temperature retries enabled, no text context carried between audio windows (`--max-context 0`), no initial prompt, no grammar constraints, no VAD, and no translation. Resetting text context prevents a bad prediction from conditioning the rest of a recording; it can reduce consistency of names across windows. Temperature retries let the recognizer recover from repetitive or low-confidence decoding on the selected device; they do not switch GPU jobs to CPU. Do not introduce cleanup by a second language model. These choices make the app's transformations inspectable; they are not a promise of exact recognition or bit-identical results across CPU and GPU.
 
 The text returned by whisper.cpp is the exported text, including its punctuation and line breaks. The app must not repair a speaker's factual mistakes or calculations. Whisper may itself normalize speech, omit hesitations, or hallucinate; exact experimental quotations still need audio review.
 

@@ -1,4 +1,6 @@
 """Small desktop-first entry point shared by the checkout and portable package."""
+import os
+from pathlib import Path
 import shutil
 import sys
 
@@ -51,7 +53,13 @@ def check() -> int:
         for device in ("cpu", "gpu"):
             needs = readiness(profile, device=device)
             print(f"{profile.title} / {device.upper()}: " + ("set up " + ", ".join(needs) if needs else "installed"))
-    print("CUDA compiler nvcc: " + (shutil.which("nvcc") or "not found (needed to build GPU engine)"))
+    local_cuda = ROOT / ".runtime/toolkit/bin/nvcc"
+    cuda_home = os.environ.get("CUDA_HOME")
+    compiler = (os.environ.get("CUDACXX") or (str(Path(cuda_home) / "bin/nvcc") if cuda_home else None)
+                or (str(local_cuda) if executable(local_cuda) else None)
+                or shutil.which("nvcc")
+                or ("/usr/local/cuda/bin/nvcc" if os.access("/usr/local/cuda/bin/nvcc", os.X_OK) else None))
+    print("CUDA compiler nvcc: " + (compiler or "not found (run ./install-deps.sh --cuda)"))
     print("GPU execution is checked during transcription; installed files alone do not prove CUDA availability.")
     if missing:
         print("\nMissing dependencies:\n- " + "\n- ".join(missing))

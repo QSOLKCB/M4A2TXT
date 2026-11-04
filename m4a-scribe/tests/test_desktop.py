@@ -181,7 +181,9 @@ class DesktopTests(unittest.TestCase):
                 model = self.root / "models/ggml-large-v3-turbo-q5_0.bin"
                 model.parent.mkdir(exist_ok=True)
                 model.write_bytes(b"fixture")
-        with mock.patch("scribe.desktop.run_process", side_effect=run), mock.patch("scribe.desktop.shutil.which", return_value="/fixture/tool"):
+        # A project-local toolkit need not expose nvcc on the desktop's PATH.
+        with mock.patch("scribe.desktop.run_process", side_effect=run), \
+                mock.patch("scribe.desktop.shutil.which", side_effect=lambda name: None if name == "nvcc" else "/fixture/tool"):
             for device, mode in (("gpu", "cuda"), ("cpu", "cpu")):
                 commands.clear()
                 setup_profile(PROFILES["mid"], threading.Event(), messages.append, self.root, device)
@@ -190,12 +192,13 @@ class DesktopTests(unittest.TestCase):
                 self.assertIn("--download", commands[-1])
                 self.assertIn("large-v3-turbo-q5_0", commands[-1])
 
-    def test_missing_cuda_compiler_stops_before_download_or_cpu_build(self):
+    def test_cuda_preflight_failure_stops_before_model_download_or_cpu_build(self):
         with mock.patch("scribe.desktop.shutil.which", side_effect=lambda name: None if name == "nvcc" else "/fixture/tool"), \
-                mock.patch("scribe.desktop.run_process") as run:
+                mock.patch("scribe.desktop.run_process", side_effect=ScribeError("nvcc is missing")) as run:
             with self.assertRaisesRegex(ScribeError, "nvcc is missing"):
                 setup_profile(PROFILES["high"], threading.Event(), lambda _: None, self.root, "gpu")
-            run.assert_not_called()
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][-1], "cuda")
 
     def test_failed_cuda_build_is_not_success_and_keeps_existing_cpu(self):
         cpu = self.root / ".runtime/cpu/bin/whisper-cli"
