@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -133,6 +134,46 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(self.calls("nvcc"), [])
         self.assertEqual(self.calls("nvidia-smi"), [])
         self.assertIn("-DGGML_CUDA=OFF", self.calls("cmake")[0])
+
+    def test_data_home_keeps_desktop_setup_and_cli_engine_paths_at_source(self):
+        # Fresh imports are required: CLI defaults capture paths at import time.
+        shutil.copytree(APP / "scribe", self.root / "scribe", ignore=shutil.ignore_patterns("__pycache__"))
+        self.tool(self.bin / "ffmpeg")
+        (self.root / "scripts/install-model.py").write_text(
+            "import sys\nfrom pathlib import Path\n"
+            "directory = Path(sys.argv[sys.argv.index('--directory') + 1])\n"
+            "directory.mkdir(parents=True, exist_ok=True)\n"
+            "(directory / ('ggml-' + sys.argv[1] + '.bin')).write_bytes(b'model fixture')\n")
+        data = self.root / "separate model data"
+        code = '''
+import threading
+from pathlib import Path
+from scribe.core import Options
+from scribe.desktop import PROFILES, readiness, setup_profile
+from scribe.paths import ROOT, RESOURCE_ROOT
+
+assert ROOT != RESOURCE_ROOT
+profile = PROFILES["laptop"]
+for device, mode in (("cpu", "cpu"), ("gpu", "cuda")):
+    # Run the real setup orchestration and build script with compiler/model
+    # fixtures. The builder determines its directory from its own location.
+    setup_profile(profile, threading.Event(), lambda _: None, device=device)
+    assert readiness(profile, device=device) == []
+    expected = RESOURCE_ROOT / ".runtime" / mode / "bin/whisper-cli"
+    assert expected.is_file()
+    desktop = profile.options(Path.cwd(), device=device)
+    cli_defaults = Options(desktop.model, Path.cwd())
+    field = "cpu_engine" if device == "cpu" else "gpu_engine"
+    assert getattr(desktop, field) == expected
+    assert getattr(cli_defaults, field) == expected
+    assert desktop.model.parent == ROOT / "models"
+    assert desktop.model.is_file()
+assert not (ROOT / ".runtime").exists()
+'''
+        result = subprocess.run([sys.executable, "-c", code], cwd=self.root,
+                                env={**self.env, "SCRIBE_DATA_HOME": str(data), "PYTHONPATH": str(self.root)},
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class InstallerTests(unittest.TestCase):

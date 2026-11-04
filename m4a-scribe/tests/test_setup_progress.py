@@ -78,7 +78,7 @@ class SetupProgressTests(unittest.TestCase):
                         observer(b"Setup: Downloading model: 50% (1.0 MiB / 2.0 MiB)\n")
                         observer(b"Setup: Verifying model...\n")
                         target = root / f"models/ggml-{profile.model}.bin"
-                        target.parent.mkdir()
+                        target.parent.mkdir(exist_ok=True)
                         target.write_bytes(b"fixture")
                 with mock.patch("scribe.desktop.shutil.which", return_value="fixture"), \
                         mock.patch("scribe.desktop.run_process", side_effect=process):
@@ -86,6 +86,57 @@ class SetupProgressTests(unittest.TestCase):
                 self.assertIn(f"Building {mode.upper()} engine: 76%", messages)
                 self.assertIn("Downloading model: 50% (1.0 MiB / 2.0 MiB)", messages)
                 self.assertIn("Verifying model...", messages)
+
+    def test_hard_killed_model_download_leaves_no_partial_or_final_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            package = str(Path(__file__).resolve().parents[1])
+            # Exercise the real installer and writer, with a controlled stream
+            # that stalls after writing a full chunk. No model or network needed.
+            (scripts / "install-model.py").write_text(
+                f"import sys, time\nsys.path.insert(0, {package!r})\n"
+                "from scribe import models\n"
+                "class Stream:\n"
+                "    headers = {}\n"
+                "    first = True\n"
+                "    def __enter__(self): return self\n"
+                "    def __exit__(self, *args): pass\n"
+                "    def read(self, size):\n"
+                "        if self.first:\n"
+                "            self.first = False\n"
+                "            return b'x' * size\n"
+                "        print('Setup: Partial fixture written', flush=True)\n"
+                "        time.sleep(30)\n"
+                "        return b''\n"
+                "models.urllib.request.urlopen = lambda *args, **kwargs: Stream()\n"
+                "raise SystemExit(models.command_line())\n", encoding="utf-8")
+            engine = root / ".runtime/cpu/bin/whisper-cli"
+            engine.parent.mkdir(parents=True)
+            engine.write_bytes(b"engine fixture")
+            engine.chmod(0o755)
+            models = root / "models"
+            models.mkdir()
+            preserved = models / "existing-model.bin"
+            preserved.write_bytes(b"keep existing model")
+            cancel = threading.Event()
+            observed = []
+            def update(value):
+                if value == "Partial fixture written":
+                    observed.extend(p for p in models.rglob("*.partial") if p.stat().st_size > 0)
+                    cancel.set()
+            def hard_stop(process):
+                process.kill()  # No child cleanup handler, as with Windows cancellation.
+                process.wait(timeout=5)
+            with mock.patch("scribe.desktop.RESOURCE_ROOT", root), \
+                    mock.patch("scribe.desktop.shutil.which", return_value=sys.executable), \
+                    mock.patch("scribe.core._stop", side_effect=hard_stop), \
+                    self.assertRaises(Cancelled):
+                setup_profile(PROFILES["laptop"], cancel, update, root)
+            self.assertEqual(len(observed), 1)
+            self.assertEqual(list(models.iterdir()), [preserved])
+            self.assertEqual(preserved.read_bytes(), b"keep existing model")
 
     def test_diagnostics_do_not_replace_progress_and_failure_is_not_completion(self):
         controller = BatchController()
@@ -109,6 +160,8 @@ class ModelProgressTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("model_installer", path)
         self.installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.installer)
+        original_models = self.installer.MODELS.copy()
+        self.addCleanup(lambda: self.installer.MODELS.update(original_models))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -124,7 +177,10 @@ class ModelProgressTests(unittest.TestCase):
         self.installer.MODELS[model] = digest
         output = io.StringIO()
         directory = self.root / model
-        with mock.patch.object(sys, "argv", ["install-model.py", model, "--download", "--directory", str(directory)]), \
+        directory.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=directory) as staging, \
+                mock.patch.object(sys, "argv", ["install-model.py", model, "--download", "--directory", str(directory),
+                                               "--staging-directory", staging]), \
                 mock.patch.object(self.installer.urllib.request, "urlopen", return_value=response), \
                 mock.patch.object(self.installer.time, "monotonic", side_effect=itertools.count(step=.3)), \
                 contextlib.redirect_stdout(output):

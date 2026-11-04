@@ -20,6 +20,27 @@ Named invariant: `FIXED_M4A_FIXTURE`. Every pipeline test starts with the same F
 
 `SCRIBE_TEST_FRESH_FIXTURES=1` retains the per-test encoding reference. Compare fresh and reused bytes directly and compare the same complete suite under both modes. Benchmark timings include test setup/teardown. The fixture is process-local, bounded, and never reused across FFmpeg/toolchain changes or application runs.
 
+## Routine CI and full parity mode
+
+The original three-build experiment below remains available through manual
+`full_parity: true`. Routine CUDA jobs now verify and restore a linked engine
+for an exact toolchain/configuration identity, or build once with compiler reuse
+on a miss. A separate receipt binds the executable and CMake configuration bytes
+to that identity. Missing, modified, mismatched or symlinked cache entries are
+rejected. The normal CUDA ELF, architecture and symbol checks still execute on
+restored engines. No application or GPU test result is cached.
+
+`force_cold: true` skips both external caches; combine it with `full_parity` for
+the original complete experiment. Application/UI-only edits run the application
+and packaging tests without rebuilding an unchanged CUDA engine. This changes
+workflow cost, not inference settings. No new timing speedup is claimed until
+actual cache-hit/miss runs are compared. Caches remain bounded by GitHub's cache
+policy, and the compiler cache retains its explicit 2 GiB cap.
+
+The records below describe the original full-parity experiment. Its configure,
+link and three-build statements apply to full parity mode; exact engine-cache
+hits intentionally skip those compilation stages and say so in their receipt.
+
 ## Compiler reuse — OPT-INC-001 adaptation
 
 Use ccache's preprocessor mode for C/C++/CUDA translation units, with compiler-content checks, no sloppiness or hard-linked outputs, and a 2 GiB bound. Source, preprocessed headers and compilation options remain part of ccache's lookup. An additional immutable CI toolchain manifest binds the runner image, installed packages, compiler versions/content, CPU features used by native compilation, architecture list, build configuration and cache-check implementation. The external cache key has no broad restore prefix.

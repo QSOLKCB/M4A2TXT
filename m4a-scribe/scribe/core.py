@@ -8,6 +8,7 @@ import re
 import shutil
 import signal
 import stat
+import struct
 import subprocess
 import tempfile
 import threading
@@ -16,7 +17,7 @@ import wave
 from dataclasses import dataclass
 from typing import Callable
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import ROOT, engine_path, ffmpeg_path
 FORMATS = {".m4a": "mov", ".mp4": "mov", ".mp3": "mp3", ".wav": "wav",
            ".flac": "flac", ".aac": "aac", ".ogg": "ogg", ".opus": "ogg"}
 
@@ -65,10 +66,12 @@ class Options:
     device: str = "auto"
     language: str = "en"
     threads: int = max(1, min(8, (os.cpu_count() or 2) // 2))
-    cpu_engine: Path = ROOT / ".runtime" / "cpu" / "bin" / "whisper-cli"
-    gpu_engine: Path = ROOT / ".runtime" / "cuda" / "bin" / "whisper-cli"
-    ffmpeg: str = "ffmpeg"
+    cpu_engine: Path = engine_path("cpu")
+    gpu_engine: Path = engine_path("cuda")
+    ffmpeg: str = ffmpeg_path()
     max_seconds: int = 4 * 3600
+    task: str = "transcribe"
+    output_format: str = "txt"
 
 
 @dataclass(frozen=True)
@@ -114,63 +117,66 @@ def run_process(argv: list[str], work: Path, cancel: threading.Event,
                 observer: Callable[[bytes], None] | None = None) -> str:
     """Use files for child output to avoid pipe deadlock; never invoke a shell."""
     check_cancel(cancel)
-    with tempfile.TemporaryFile(dir=work) as log:
-        try:
-            process = subprocess.Popen(
-                argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                start_new_session=(os.name == "posix"), cwd=work,
-            )
-        except OSError as exc:
-            raise ScribeError(f"Cannot start {label}: {exc}") from exc
-        try:
-            last_progress = -1
-            observed = 0
-            def inspect_log():
-                nonlocal observed
-                size = os.fstat(log.fileno()).st_size
-                if size > 64 * 1024 * 1024:
-                    raise ScribeError(f"{label} produced an excessive diagnostic log.")
-                if observer and hasattr(os, "pread"):
-                    while observed < size:
-                        chunk = os.pread(log.fileno(), min(65536, size - observed), observed)
-                        if not chunk:
-                            break
-                        observed += len(chunk)
-                        observer(chunk)
-                return size
+    # Separate file descriptions let Windows read live progress too, without
+    # changing the offset used by the child or relying on POSIX-only pread.
+    with tempfile.TemporaryDirectory(prefix="process-", dir=work) as logs:
+        with (Path(logs) / "output.log").open("w+b") as log, (Path(logs) / "output.log").open("rb") as reader:
+            try:
+                process = subprocess.Popen(
+                    argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                    start_new_session=(os.name == "posix"), cwd=work,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except OSError as exc:
+                raise ScribeError(f"Cannot start {label}: {exc}") from exc
+            try:
+                last_progress = -1
+                observed = 0
+                def inspect_log():
+                    nonlocal observed
+                    size = os.fstat(log.fileno()).st_size
+                    if size > 64 * 1024 * 1024:
+                        raise ScribeError(f"{label} produced an excessive diagnostic log.")
+                    if observer:
+                        while observed < size:
+                            reader.seek(observed)
+                            chunk = reader.read(min(65536, size - observed))
+                            if not chunk:
+                                break
+                            observed += len(chunk)
+                            observer(chunk)
+                    return size
 
-            while process.poll() is None:
-                if cancel.wait(0.1):
-                    raise Cancelled("Cancelled; no final transcript was saved.")
-                # pread does not alter the file position shared with the child.
+                while process.poll() is None:
+                    if cancel.wait(0.1):
+                        raise Cancelled("Cancelled; no final transcript was saved.")
+                    size = inspect_log()
+                    if size:
+                        reader.seek(max(0, size - 8192))
+                        tail = reader.read(8192)
+                        matches = re.findall(rb"progress\s*=\s*(\d+)%", tail)
+                        if matches:
+                            progress = min(100, int(matches[-1]))
+                            if progress > last_progress:
+                                last_progress = progress
+                                event(f"{label}: {progress}%")
+                check_cancel(cancel)
                 size = inspect_log()
-                if hasattr(os, "pread") and size:
-                    tail = os.pread(log.fileno(), min(size, 8192), max(0, size - 8192))
-                    matches = re.findall(rb"progress\s*=\s*(\d+)%", tail)
-                    if matches:
-                        progress = min(100, int(matches[-1]))
-                        if progress > last_progress:
-                            last_progress = progress
-                            event(f"{label}: {progress}%")
-            check_cancel(cancel)
-            size = inspect_log()
-            if observer and not hasattr(os, "pread"):
-                log.seek(0)
-                while chunk := log.read(65536):
-                    observer(chunk)
-            log.seek(max(0, size - 16384))
-            diagnostic = log.read().decode("utf-8", errors="replace")
-            if process.returncode:
-                raise ScribeError(f"{label} failed (exit {process.returncode}).\n{diagnostic[-4000:]}")
-            return diagnostic
-        except BaseException:
-            _stop(process)
-            raise
+                reader.seek(max(0, size - 16384))
+                diagnostic = reader.read().decode("utf-8", errors="replace")
+                if process.returncode:
+                    raise ScribeError(f"{label} failed (exit {process.returncode}).\n{diagnostic[-4000:]}")
+                return diagnostic
+            except BaseException:
+                _stop(process)
+                raise
 
 
 def snapshot_audio(source: Path, target: Path, cancel: threading.Event) -> str:
     """Copy one regular local file to private storage, hashing the exact input."""
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if source.is_symlink():
+        raise ScribeError("Audio must be a regular local file, not a symlink.")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
     digest = hashlib.sha256()
     try:
         fd = os.open(source, flags)
@@ -223,13 +229,61 @@ def decode_audio(source: Path, wav: Path, options: Options,
                 raise ScribeError("No audio samples were decoded.")
             if frames > options.max_seconds * 16000:
                 raise ScribeError(f"Audio exceeds the {options.max_seconds / 3600:g}-hour preview limit; nothing was transcribed.")
-    except (wave.Error, EOFError) as exc:
+    except (wave.Error, EOFError, RuntimeError) as exc:
         raise ScribeError("The decoder did not produce a valid WAV file.") from exc
 
 
+def prepare_audio(source: Path, wav: Path, options: Options,
+                  cancel: threading.Event, event: Callable[[str], None]) -> Path:
+    """Reuse the private snapshot only when it already meets the PCM contract."""
+    if source.suffix.lower() == ".wav":
+        try:
+            with wave.open(str(source), "rb") as audio:
+                compatible = (audio.getnchannels(), audio.getframerate(), audio.getsampwidth(), audio.getcomptype()) == (1, 16000, 2, "NONE")
+                if compatible:
+                    frames = audio.getnframes()
+                    if not 0 < frames <= options.max_seconds * 16000:
+                        raise ScribeError("PCM audio is empty or exceeds the duration limit.")
+                    remaining = frames * 2
+                    while remaining:
+                        check_cancel(cancel)
+                        chunk = audio.readframes(min(remaining // 2, 524288))
+                        if not chunk:
+                            raise ScribeError("The PCM WAV file is truncated.")
+                        remaining -= len(chunk)
+        except (wave.Error, EOFError, RuntimeError):
+            pass  # Let the strict decoder validate unsupported or malformed WAV layouts.
+        else:
+            if compatible:
+                event("Using verified 16 kHz mono PCM audio directly…")
+                return source
+    decode_audio(source, wav, options, cancel, event)
+    return wav
+
+
+def validate_model_task(model: Path, options: Options) -> None:
+    """Catch unsupported tasks even if a standard GGML model was renamed."""
+    name = model.name.lower()
+    english = bool(re.search(r"\.en(?:[.-]|$)", name))
+    turbo = "turbo" in name
+    with model.open("rb") as stream:
+        header = stream.read(48)
+    if len(header) == 48:
+        fields = struct.unpack("<12i", header)
+        if fields[0] == 0x67676D6C:
+            english = english or fields[1] == 51864
+            turbo = turbo or (fields[5], fields[9], fields[10]) == (32, 4, 128)
+    if english and (options.task == "translate" or options.language != "en"):
+        raise ScribeError("Choose a multilingual model for translation or a source language other than en.")
+    if turbo and options.task == "translate":
+        raise ScribeError("Turbo models are not trained for translation. Choose multilingual small or large-v3.")
+
+
 def publish_text(source: Path, directory: Path, stem: str,
-                 cancel: threading.Event) -> Path:
+                 cancel: threading.Event, output_format: str = "txt") -> Path:
     """Publish complete bytes atomically without replacing any existing path."""
+    if output_format not in {"txt", "srt", "vtt"}:
+        raise ScribeError("Output format must be txt, srt, or vtt.")
     encoded_stem = stem.encode("utf-8")
     if len(encoded_stem) > 200:
         stem = encoded_stem[:180].decode("utf-8", errors="ignore") + "-" + hashlib.sha256(encoded_stem).hexdigest()[:12]
@@ -243,7 +297,7 @@ def publish_text(source: Path, directory: Path, stem: str,
         for index in range(10000):
             check_cancel(cancel)
             suffix = "" if index == 0 else f" ({index + 1})"
-            candidate = directory / f"{stem}{suffix}.txt"
+            candidate = directory / f"{stem}{suffix}.{output_format}"
             try:
                 # Unlike replace/rename, link fails if candidate already exists.
                 os.link(staged, candidate)
@@ -265,6 +319,10 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
     check_cancel(cancel)
     if options.device not in {"auto", "cpu", "gpu"}:
         raise ScribeError("Device must be auto, cpu, or gpu.")
+    if options.task not in {"transcribe", "translate"}:
+        raise ScribeError("Task must be transcribe or translate (into English).")
+    if options.output_format not in {"txt", "srt", "vtt"}:
+        raise ScribeError("Output format must be txt, srt, or vtt.")
     if not re.fullmatch(r"[a-z]{2,3}|auto", options.language):
         raise ScribeError("Use an ISO language code such as en, or auto.")
     if not 1 <= options.threads <= 256 or options.max_seconds < 1:
@@ -276,6 +334,7 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
     model = options.model.expanduser().resolve(strict=True)
     if not model.is_file() or model.stat().st_size == 0:
         raise ScribeError("Choose an installed whisper.cpp GGML model file (.bin).")
+    validate_model_task(model, options)
     directory = options.output_dir.expanduser().resolve(strict=True)
     if not directory.is_dir():
         raise ScribeError("Choose an existing output folder.")
@@ -296,18 +355,19 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
         snapshot = work / ("source" + source.suffix.lower())
         event("Reading local audio…")
         source_hash = snapshot_audio(source, snapshot, cancel)
-        wav = work / "audio.wav"
-        decode_audio(snapshot, wav, options, cancel, event)
+        wav = prepare_audio(snapshot, work / "audio.wav", options, cancel, event)
         chosen = ""
-        textfile = work / "transcript.txt"
+        textfile = work / ("transcript." + options.output_format)
         for attempt, (device, engine) in enumerate(candidates):
             check_cancel(cancel)
             textfile.unlink(missing_ok=True)
             event(f"Transcribing locally — {device}…")
             command = [str(engine), "--model", str(model), "--file", str(wav),
                        "--language", options.language, "--threads", str(options.threads),
-                       "--output-txt", "--output-file", str(work / "transcript"),
+                       "--output-" + options.output_format, "--output-file", str(work / "transcript"),
                        "--print-progress", "--temperature", "0", "--max-context", "0"]
+            if options.task == "translate":
+                command.append("--translate")
             # Keep Whisper's temperature retries for repetitive/low-confidence
             # decoding. These stay on the selected device; GPU mode still never
             # retries on CPU. Avoid carrying a bad text prediction into later
@@ -328,7 +388,7 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
                 if not textfile.is_file():
                     raise ScribeError("Whisper exited without producing a transcript.")
                 # Validate text encoding but do not rewrite the returned bytes.
-                textfile.read_text(encoding="utf-8")
+                text = textfile.read_text(encoding="utf-8")
                 chosen = device
                 break
             except Cancelled:
@@ -342,8 +402,9 @@ def transcribe(source: Path, options: Options, cancel: threading.Event | None = 
                     raise
                 event(f"GPU engine failed; retrying this file from the start on CPU.\n{exc}")
         check_cancel(cancel)
-        output = publish_text(textfile, directory, source.stem, cancel)
+        stem = source.stem + (".en" if options.task == "translate" else "")
+        output = publish_text(textfile, directory, stem, cancel, options.output_format)
         result = Result(output, chosen, time.monotonic() - started,
-                        source_hash, textfile.stat().st_size == 0)
+                        source_hash, not (text.removeprefix("WEBVTT").strip() if options.output_format == "vtt" else text))
         event(f"Saved: {output}" + (" — no text recognised" if result.empty else ""))
         return result

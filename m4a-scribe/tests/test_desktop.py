@@ -111,7 +111,7 @@ class DesktopTests(unittest.TestCase):
         settings.save()
         loaded = Settings(path)
         self.assertEqual((loaded.profile, loaded.device, loaded.output), ("mid", "gpu", self.output))
-        self.assertEqual(set(__import__('json').loads(path.read_text())), {"profile", "device", "output"})
+        self.assertEqual(set(__import__('json').loads(path.read_text())), {"profile", "device", "output", "task", "language", "output_format", "large_text"})
 
     def test_old_and_invalid_device_settings_default_to_cpu(self):
         path = self.root / "settings.json"

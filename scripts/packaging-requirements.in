@@ -1,0 +1,2 @@
+# Build-time only. No third-party Python dependency is required by the app.
+pyinstaller==6.16.0
