@@ -26,7 +26,9 @@ def engine_path(mode: str, root: Path = ROOT) -> Path:
     bundled = RESOURCE_ROOT / "bin" / ("whisper-cli" + EXE)
     if mode == "cpu" and root == ROOT and bundled.is_file():
         return bundled
-    return root / ".runtime" / mode / "bin" / ("whisper-cli" + EXE)
+    # Source builds live beside build-engine.sh, independently of model storage.
+    runtime_root = RESOURCE_ROOT if root == ROOT else root
+    return runtime_root / ".runtime" / mode / "bin" / ("whisper-cli" + EXE)
 
 
 def ffmpeg_path() -> str:
