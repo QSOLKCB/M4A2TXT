@@ -21,6 +21,8 @@ Engine and model installation is a separate, explicit setup action, available fr
 
 The app copies the recognizer's `.txt` bytes without rewriting them. It adds no summaries, speaker names, promotional lines, explanations, factual corrections, or profanity filtering. For example, a host saying an incorrect calculation must not trigger a second AI pass to repair it.
 
+Whisper starts decoding at temperature zero and can retry uncertain or repetitive segments using its standard temperature fallback. These retries run on the selected processor; they do not enable CPU fallback for GPU mode or rewrite the transcript afterward. Text context is reset between audio windows to keep a bad prediction from repeating across the rest of a recording. This can reduce consistency of names between windows.
+
 Whisper itself is not a guarantee of verbatim transcription. It can omit fillers, mishear names or numbers, repeat text, or hallucinate during silence. “No cleanup” describes what this app does after recognition; it does not remove those model limitations. Check important passages against the source audio.
 
 The three-preset desktop transcribes English. The CLI also accepts another supported Whisper language code or `auto`. The task is transcription, not translation. VAD and automatic speaker labelling are not enabled in this preview.
@@ -58,7 +60,7 @@ Select **Laptop**, **Mid**, or **High**, then **CPU** or **GPU**. If that combin
 
 The launcher uses `/usr/bin/python3`, so an activated virtual environment does not hide Ubuntu's GTK bindings. Set `SCRIBE_PYTHON` only when using another interpreter that already has the GI bindings. The desktop requires GTK 4.10+ and libadwaita 1.4+.
 
-NVIDIA acceleration needs a compatible driver and CUDA toolkit. With GPU selected, setup requires `nvcc` to build the CUDA engine. Missing compilers and failed builds are reported in Details; setup does not silently succeed using CPU. Existing CPU engines are retained, and CPU can be selected at any time while idle. Once a CUDA engine is installed, `nvcc` is not needed for transcription, but its CUDA runtime libraries and a compatible driver are. System packages and drivers are never installed or modified by the GUI.
+NVIDIA acceleration needs a compatible driver and CUDA toolkit. With GPU selected, setup requires a compatible `nvcc` to build the CUDA engine. The build checks GPU targets and host compiler compatibility before compiling. Missing compilers and failed builds are reported in Details; setup does not silently succeed using CPU. Existing CPU engines are retained, and CPU can be selected at any time while idle. Once a CUDA engine is installed, `nvcc` is not needed for transcription, but its CUDA runtime libraries and a compatible driver are. System packages and drivers are never installed or modified by the GUI.
 
 ### Manual or offline setup
 
@@ -92,13 +94,20 @@ python3 scripts/install-model.py small.en \
   --from-file /path/to/ggml-small.en.bin
 ```
 
-For GPU mode, install a compatible NVIDIA driver and CUDA toolkit using the appropriate packages for your machine, then build the CUDA engine (a CPU build is not required):
+For GPU mode, first verify that `nvidia-smi` works. On Linux x86_64, install the optional project-local toolkit from the **repository or package root**, then build the CUDA engine (a CPU build is not required):
 
 ```sh
-sh scripts/build-engine.sh cuda
+./install-deps.sh --cuda
+sh m4a-scribe/scripts/build-engine.sh cuda
 ```
 
-The script checks for `nvcc`; it does not install or change GPU drivers. RTX 50-series cards, including the RTX 5060 Ti, need CUDA 12.8 or newer for the native Blackwell build. Use an NVIDIA toolkit that supports your operating system and host compiler; see [NVIDIA's installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/). Check `nvcc --version`; the CUDA version shown by `nvidia-smi` is the driver's supported version, not proof that the compiler is installed. Ensure the toolkit's `bin` directory is on PATH before opening the app. For cross-compilation only, `SCRIBE_CUDA_ARCHITECTURES='86;120' sh scripts/build-engine.sh cuda` overrides native GPU detection; normal local setup targets the installed GPU. CPU and CUDA engines stay in separate directories.
+`--cuda` downloads about 842 MiB of pinned NVIDIA CUDA 13.2 components, verifies their SHA-256 digests, and installs them into `m4a-scribe/.runtime/toolkit`. Allow about 5 GiB of free space during installation. It uses no sudo and changes no system packages, drivers, apt repositories, or shell profiles. Run `./install-deps.sh` separately if native desktop dependencies are missing. Interrupted downloads leave no active partial toolkit; rerun the command to retry. Keep the toolkit alongside the engine: its libraries are also needed for transcription.
+
+This path fixes the RTX 5060 Ti failure on Ubuntu 26.04: the distro's `/usr/bin/nvcc` reports CUDA 12.4, which rejects the pinned engine's `compute_120a` target. CUDA 13.2 supports both Blackwell and this machine's GCC 15 / glibc 2.42 toolchain. A working NVIDIA driver is still required; the installer never replaces one.
+
+The build selects `CUDACXX`, then `CUDA_HOME/bin/nvcc`, then the project-local toolkit, PATH, and finally `/usr/local/cuda/bin/nvcc`. Explicit overrides take priority even if incompatible. GUI setup uses the same discovery without needing PATH changes. When the compiler or target configuration changes, the previous CUDA build is retained in `.runtime/cuda-previous.*` and a fresh build is configured. The CPU build and models are preserved.
+
+The build script checks the selected compiler's supported targets and compiles a small CUDA source file before building the engine; it does not download a toolkit or change GPU drivers. RTX 50-series cards, including the RTX 5060 Ti, need CUDA 12.8 or newer for the native Blackwell build. Use an NVIDIA toolkit that supports your operating system and host compiler; see [NVIDIA's installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/). Check `nvcc --version`; the CUDA version shown by `nvidia-smi` is the driver's supported version, not proof that the compiler is installed. For a custom toolkit, set `CUDACXX=/path/to/bin/nvcc` or `CUDA_HOME=/path/to/toolkit`. Set `CUDAHOSTCXX` if that toolkit needs a different supported host compiler. For cross-compilation only, `SCRIBE_CUDA_ARCHITECTURES='86;120' sh scripts/build-engine.sh cuda` overrides native GPU detection; normal local setup targets the installed GPU. CPU and CUDA engines stay in separate directories.
 
 Start the desktop app:
 
@@ -130,7 +139,7 @@ After setting up Mid + GPU and High + GPU locally, run the same check without do
 python3 scripts/check-cuda.py --preset mid --preset high --output-dir /path/to/new-cuda-check
 ```
 
-The output folder must be new. Use just `--preset mid` to check the smaller model first. A successful receipt requires a nonempty transcript and a CUDA backend report for each requested preset. Physical GPU inference remains unverified until this check is actually run on NVIDIA hardware.
+The output folder must be new. Use just `--preset mid` to check the smaller model first. A successful receipt requires a nonempty transcript and a CUDA backend report for each requested preset. A local High + GPU full-recording run on an RTX 5060 Ti is recorded in [VALIDATION.md](VALIDATION.md); this two-preset public-sample check remains available for other installations.
 
 ## Batch command line
 
@@ -189,3 +198,6 @@ App source: MIT. Whisper model weights and whisper.cpp have their own upstream n
 - [Whisper model card and limitations](https://github.com/openai/whisper/blob/main/model-card.md)
 - [Whisper large-v3-turbo model card](https://huggingface.co/openai/whisper-large-v3-turbo)
 - [FFmpeg protocol controls](https://ffmpeg.org/ffmpeg-protocols.html)
+
+- [NVIDIA CUDA 13.2 host compiler and Linux requirements](https://docs.nvidia.com/cuda/archive/13.2.0/cuda-installation-guide-linux/index.html)
+- [Pinned NVIDIA CUDA 13.2 component manifest](https://developer.download.nvidia.com/compute/cuda/redist/redistrib_13.2.0.json)

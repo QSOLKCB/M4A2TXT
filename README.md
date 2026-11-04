@@ -22,7 +22,7 @@ Select **Laptop**, **Mid**, or **High**, then choose **CPU** or **GPU**. Use the
 
 GPU mode requires a compatible NVIDIA driver and CUDA toolkit for setup. It stops on a GPU error instead of silently retrying on CPU. Successful jobs show the reported CUDA backend. See the [CUDA workflow and hardware check](m4a-scribe/README.md#cuda-validation-workflow).
 
-On Ubuntu 24.04+, run `./install-deps.sh` once if the native dependencies are missing. `./m4a2txt --check` checks your local setup without downloading anything. See [package instructions](PACKAGING.md) for extraction, verification, and rebuilding the deterministic archive. The package uses your operating system's Python, GTK and FFmpeg; it installs the selected model and builds its engine during explicit first-time setup.
+On Ubuntu 24.04+, run `./install-deps.sh` once if the native dependencies are missing. For an RTX 50-series GPU, `./install-deps.sh --cuda` installs a verified project-local CUDA 13.2 toolkit without changing the driver; then use **Set up GPU** or run `sh m4a-scribe/scripts/build-engine.sh cuda`. `./m4a2txt --check` checks your local setup without downloading anything. See [package instructions](PACKAGING.md) for extraction, verification, and rebuilding the deterministic archive. The package uses your operating system's Python, GTK and FFmpeg; it installs the selected model and builds its engine during explicit first-time setup.
 
 After setup, transcription runs locally without a cloud service, chat interface, or HTTP server. Model installation is a separate, explicit operation. The application exports plain UTF-8 `.txt` files without adding summaries or rewriting the recognizer's text.
 
@@ -36,7 +36,7 @@ After setup, transcription runs locally without a cloud service, chat interface,
 | [`docs/OPT-ADAPTATION.md`](docs/OPT-ADAPTATION.md) | OPT patterns, measured fixture reuse, and verified compiler-cache workflow |
 | [`archive/`](archive/) | Original uploaded bundle and its checksum |
 
-This remains a source preview. The test suite covers the local pipeline, desktop queue, cancellation, setup choices, and real GTK widget flows. See the validation record and GitHub Actions for executed results. GPU operation and full-length Audio Overview accuracy still require validation on the target machine.
+This remains a source preview. The test suite covers the local pipeline, desktop queue, cancellation, setup choices, and real GTK widget flows. See the validation record and GitHub Actions for executed results. High + GPU has been validated on an RTX 5060 Ti with a full 20-minute recording; see the validation record. Formal transcription accuracy and other GPU/preset combinations still need evaluation.
 
 ## Verify the extraction
 

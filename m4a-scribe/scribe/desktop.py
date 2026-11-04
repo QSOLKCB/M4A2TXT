@@ -74,9 +74,8 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
     options = profile.options(Path.home(), root, device)
     engine = options.gpu_engine if device == "gpu" else options.cpu_engine
     needs_build = not executable(engine)
-    if needs_build and device == "gpu" and not shutil.which("nvcc"):
-        raise ScribeError("CUDA compiler nvcc is missing. Install a compatible NVIDIA CUDA toolkit, "
-                          "then reopen the app, or select CPU. RTX 50-series cards need CUDA 12.8 or newer.")
+    # The build script discovers project-local toolkits and validates the GPU,
+    # compiler and host headers before cloning or downloading a model.
     if needs_build:
         missing = [name for name in ("git", "cmake", "c++") if not shutil.which(name)]
         if missing:

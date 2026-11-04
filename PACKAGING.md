@@ -17,7 +17,7 @@ If dependencies are missing, run this once, then launch again:
 ./m4a2txt
 ```
 
-This explicit helper uses `sudo apt-get` to install Python, GTK, FFmpeg, and build tools. The app never runs it automatically. It does not install or change NVIDIA drivers. You can inspect it before running it.
+This explicit helper uses `sudo apt-get` to install Python, GTK, FFmpeg, and build tools. The app never runs it automatically. It does not install or change NVIDIA drivers. You can inspect it before running it. For an RTX 50-series GPU on Linux x86_64, run `./install-deps.sh --cuda` to download a verified CUDA 13.2 toolkit into the application folder (about 842 MiB download). This optional mode needs no sudo and leaves system packages and drivers unchanged. The GPU build finds this toolkit automatically, including when launched from the desktop. Keep it with the engine for runtime libraries.
 
 Choose **Laptop**, **Mid**, or **High**, then **CPU** or **GPU**. Click the clearly labelled **Set up CPU/GPU** button when needed; this downloads the preset's model and builds the selected local engine. Then drop your `.m4a` files, click **Transcribe**, and open the resulting `.txt` files. After setup, transcription works offline. GPU mode requires a reported CUDA backend and never silently retries on CPU. NVIDIA acceleration needs a compatible driver and CUDA toolkit already installed; RTX 50-series builds need CUDA 12.8 or newer. Select CPU to process the same model without CUDA.
 
@@ -39,7 +39,7 @@ Batch CLI use remains available:
 ./m4a2txt --cli --help
 ```
 
-See [m4a-scribe/README.md](m4a-scribe/README.md) for detailed usage, the three preset models, offline setup, CUDA setup, and transcription limitations. See [m4a-scribe/VALIDATION.md](m4a-scribe/VALIDATION.md) for test evidence. GPU inference and full-episode accuracy still need validation on the target machine.
+See [m4a-scribe/README.md](m4a-scribe/README.md) for detailed usage, the three preset models, offline setup, CUDA setup, and transcription limitations. See [m4a-scribe/VALIDATION.md](m4a-scribe/VALIDATION.md) for test evidence. The validation record includes a complete High + GPU run on an RTX 5060 Ti; it is not a formal accuracy benchmark.
 
 ## Rebuild from the Git repository
 

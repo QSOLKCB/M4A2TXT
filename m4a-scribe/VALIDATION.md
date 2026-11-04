@@ -1,5 +1,17 @@
 # Validation
 
+## RTX 5060 Ti / Ubuntu 26.04 fix — 4 November 2026
+
+- Reproduced the original failure on an RTX 5060 Ti (16 GiB, compute capability 12.0), NVIDIA driver 595.99.02, Ubuntu 26.04.1: the distro CUDA 12.4 compiler failed with `Unsupported gpu architecture 'compute_120a'`. The driver worked outside the restricted development sandbox.
+- Installed the six SHA-256-pinned CUDA 13.2 components using `./install-deps.sh --cuda`, without sudo or driver changes. Repeating installation reused the completed toolkit. The updated build script selected this toolkit, preserved the previous CUDA build and completed with GCC 15.2.0. Its final version check reported whisper.cpp 1.9.5. CPU engine and existing model files were preserved.
+- A full **1,226.246-second M4A** passed through `./m4a2txt --cli --device gpu --threads 8` using the installed High (`large-v3`) model. Final run: **50.662 seconds**, **CUDA0 confirmed**, exit code 0, no CPU fallback, 21,133-byte / 3,472-word transcript. Source SHA-256 was unchanged. Model checksum verification passed. The source audio, transcript, detailed log and hash receipt remain local and are not included in the PR.
+- Testing exposed a separate decoder problem: the earlier settings repeated one sentence 576 times. Enabling temperature retries alone did not fix it. A focused five-minute excerpt passed with `--max-context 0`; the final full-file test used that setting and retained standard temperature retries. The repeated-sentence loop disappeared and the transcript reached the closing remarks, also checked against an independently transcribed final-minute excerpt. No generated text was edited or deduplicated by the app.
+- During the initial GPU run, `nvidia-smi` showed whisper-cli using **4,214 MiB**, total GPU memory **4,654 MiB**, and **83% GPU utilization** at one observation. These are observations, not peak-memory or throughput benchmarks.
+- **52 regression tests passed**: 50 app/setup/pipeline tests and two package tests. New setup checks cover toolkit selection with spaces in paths, old-compiler rejection before build changes, host compiler failure, missing driver, explicit compile-only targets without a GPU, stale-build preservation, CPU independence, SHA-256 rejection, safe extraction, and partial-install cleanup. The GUI test also verifies setup with no nvcc on PATH. Existing output-preservation and GPU-no-CPU-retry checks remain intact.
+- Python compilation, shell syntax, `git diff --check`, and source checksums passed. This run validated High on the physical GPU; Mid/Laptop hardware inference and a formal transcription accuracy study were not performed. GTK widget checks remain covered by CI; no local GUI automation was run.
+
+The remaining sections retain historical evidence from earlier builds and environments.
+
 ## CPU/GPU controls 0.3.0 preview
 
 - **41 local tests passed**: 39 pipeline/desktop/fixture tests and two package tests. They cover all six preset/processor combinations, processor persistence and old-settings migration, selected-engine readiness, missing CUDA compiler, CUDA build failure without a CPU substitution, and separate CPU/CUDA setup.
