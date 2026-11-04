@@ -1,15 +1,18 @@
 """Exercise real GTK widgets under Xvfb; the recognizer is a controlled fixture."""
 import argparse
 from pathlib import Path
+import queue
 import subprocess
 import sys
 import tempfile
 import time
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scribe.core import Cancelled, Result
 from scribe.desktop import BatchController, PROFILES, Settings
 from scribe.gui import Adw, Gdk, Gio, GLib, Gtk, ScribeApplication
+from scribe.setup_progress import SetupLog
 
 
 def spin(until=lambda: False, seconds=.3):
@@ -70,6 +73,87 @@ def main():
         assert settings.device == "cpu"
         assert win.primary_button.get_label() == "Set up CPU"
         screenshot("01-empty-setup.png")
+
+        # Keep fixture setup running while checking actual widgets at each stage.
+        # No network, compiler, or model is involved in these UI checks.
+        real_setup = controller.setup
+        def exercise_setup(profile_key, device, outcome="complete"):
+            updates = queue.Queue()
+            def installer(profile, cancel, event, root, selected_device):
+                while not cancel.wait(.01):
+                    try:
+                        value = updates.get_nowait()
+                    except queue.Empty:
+                        continue
+                    if value == "complete":
+                        return
+                    if value == "fail":
+                        raise ValueError("Fixture setup failure")
+                    event(value)
+                raise Cancelled()
+            win.profile_buttons[profile_key].set_active(True)
+            win.device_buttons[device].set_active(True)
+            with mock.patch.object(controller, "setup", side_effect=lambda profile, root, device:
+                                   real_setup(profile, root, installer, device)):
+                win.primary_button.emit("clicked")
+            assert controller.busy
+            assert win.progress.get_visible()
+            assert win.progress.get_show_text()
+            assert win.setup_spinner.get_spinning()
+            assert win.log_hint.get_label() == "See Details For Log"
+            assert win.progress_value is None
+            engine = "CUDA" if device == "gpu" else "CPU"
+            updates.put(f"Building {engine} engine: 76%")
+            spin(lambda: win.progress.get_text() == "76%", seconds=3)
+            assert win.progress.get_fraction() == .76
+            assert "76%" in win.status.get_text()
+            assert "elapsed" in win.elapsed.get_text()
+            updates.put(SetupLog("compiler output while progress stays at 76%"))
+            spin()
+            assert win.progress.get_fraction() == .76
+            if profile_key == "high" and device == "gpu" and outcome == "complete":
+                screenshot("05-setup-cuda-progress.png")
+                win.set_default_size(540, 600)
+                screenshot("06-compact-setup-progress.png")
+                win.set_default_size(850, 740)
+            details = win.show_details()
+            buffer = win.detail_buffers[-1]
+            updates.put(SetupLog("live setup diagnostic"))
+            spin(lambda: "live setup diagnostic" in buffer.get_text(*buffer.get_bounds(), True), seconds=3)
+            assert "live setup diagnostic" in buffer.get_text(*buffer.get_bounds(), True)
+            details.close()
+            spin()
+            assert not win.detail_buffers
+            updates.put("Downloading model: 50% (1.0 MiB / 2.0 MiB)")
+            spin(lambda: win.progress.get_text() == "50%", seconds=3)
+            assert win.progress.get_fraction() == .5
+            updates.put("Downloading model: 1.5 MiB received")
+            spin(lambda: win.status.get_text() == "Downloading model: 1.5 MiB received", seconds=3)
+            assert win.progress_value is None
+            assert win.progress.get_text() == "Working…"
+            updates.put("Verifying model…")
+            spin(lambda: win.status.get_text() == "Verifying model…", seconds=3)
+            assert win.progress_value is None
+            assert win.progress.get_text() == "Working…"
+            if outcome == "cancel":
+                win.cancel_button.emit("clicked")
+            else:
+                updates.put(outcome)
+            spin(lambda: not controller.busy, seconds=3)
+            assert not controller.busy
+            assert not win.progress_row.get_visible()
+            assert not win.setup_spinner.get_spinning()
+            assert win.progress.get_fraction() == 0
+            assert win.progress_value is None
+            expected = {"complete": "Setup complete", "cancel": "Setup cancelled", "fail": "Setup failed"}
+            assert expected[outcome] in win.status.get_text()
+
+        for key in PROFILES:
+            for device in ("cpu", "gpu"):
+                exercise_setup(key, device)
+        exercise_setup("high", "gpu", "cancel")
+        exercise_setup("high", "gpu", "fail")
+        win.device_buttons["cpu"].set_active(True)
         for profile in PROFILES.values():
             options = profile.options(output, root)
             options.model.parent.mkdir(exist_ok=True)
@@ -104,6 +188,8 @@ def main():
         assert win.primary_button.get_sensitive()
         screenshot("02-ready-mid.png")
         win.primary_button.emit("clicked")
+        assert not win.progress.get_show_text()  # Existing transcription display.
+        assert not win.setup_spinner.get_visible()
         spin(lambda: not controller.busy, seconds=5)
         assert controller.jobs[0].status == "Saved"
         assert not win.primary_button.get_sensitive()
@@ -159,7 +245,7 @@ def main():
         assert not (output / "Slow.txt").exists()
         assert controller.jobs[2].status == "Cancelled"
         app.quit()
-        print("GTK smoke PASS: presets, CPU/GPU selection, Mid/High GPU routing, setup state, file drop, queue, completion, preview, dialogs, cancellation, close. Recognizer is a fixture; no hardware inference.")
+        print("GTK smoke PASS: all six setup combinations, build/model progress, live logs, setup completion/failure/cancellation, presets, CPU/GPU selection, Mid/High GPU routing, file drop, queue, completion, preview, dialogs, cancellation, close. Setup and recognizer are fixtures; no downloads or hardware inference.")
 
 
 if __name__ == "__main__":

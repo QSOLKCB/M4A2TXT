@@ -170,7 +170,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_setup_builds_only_selected_engine_and_keeps_selected_model(self):
         commands, messages = [], []
-        def run(argv, work, cancel, event, label):
+        def run(argv, work, cancel, event, label, observer=None):
             commands.append(argv)
             if label == "Engine setup":
                 engine = self.root / f".runtime/{argv[-1]}/bin/whisper-cli"

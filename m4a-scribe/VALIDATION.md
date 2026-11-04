@@ -1,5 +1,11 @@
 # Validation
 
+## Setup progress — 4 November 2026
+
+- **61 regression tests passed**: 59 app/setup/pipeline tests and two package tests. New checks cover all six preset/processor routes, split and out-of-order Make output, Ninja percentages, live subprocess output beyond the diagnostic tail, model-download percentages and unknown sizes, existing-model verification, and checksum failure after a download reaches 100%.
+- Native GTK checks passed under an isolated Xvfb display. Controlled setup fixtures exercise Laptop/Mid/High on CPU and GPU, visible percentages and elapsed time, animated verification, live Details logs, completion, failure, cancellation, and reset before retry. Existing transcription, queue, and close/cancel checks also passed.
+- Setup checks use fixture compiler output and model bytes; this UI change did not run a real CUDA build or download model weights. The earlier hardware validation below remains the evidence for actual GPU inference.
+
 ## RTX 5060 Ti / Ubuntu 26.04 fix — 4 November 2026
 
 - Reproduced the original failure on an RTX 5060 Ti (16 GiB, compute capability 12.0), NVIDIA driver 595.99.02, Ubuntu 26.04.1: the distro CUDA 12.4 compiler failed with `Unsupported gpu architecture 'compute_120a'`. The driver worked outside the restricted development sandbox.

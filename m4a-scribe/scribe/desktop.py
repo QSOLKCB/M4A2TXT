@@ -14,6 +14,7 @@ import threading
 from typing import Callable
 
 from .core import Cancelled, FORMATS, Options, ROOT, Result, ScribeError, run_process, transcribe
+from .setup_progress import SetupLog, SetupOutput
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ def processor_note(profile: Profile, root: Path = ROOT, device: str = "cpu") -> 
     return "Set up the CUDA engine to use your NVIDIA GPU. A compatible driver and CUDA toolkit are required."
 
 
-def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[str], None],
+def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[str | SetupLog], None],
                   root: Path = ROOT, device: str = "cpu") -> None:
     """Explicit setup only. Normal transcription never calls this function."""
     if not shutil.which("ffmpeg"):
@@ -84,11 +85,16 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
         work = Path(tmp)
         if needs_build:
             mode = "cuda" if device == "gpu" else "cpu"
-            event(f"Building the local {mode.upper()} engine…")
-            run_process(["sh", str(root / "scripts/build-engine.sh"), mode], work, cancel, event, "Engine setup")
+            event(f"Preparing the local {mode.upper()} engine…")
+            progress = SetupOutput(event, mode.upper())
+            run_process(["sh", str(root / "scripts/build-engine.sh"), mode], work, cancel, event,
+                        "Engine setup", observer=progress.feed)
+            progress.finish()
         event(f"Installing the {profile.title} model ({profile.size})…")
+        progress = SetupOutput(event)
         run_process([sys.executable, str(root / "scripts/install-model.py"), profile.model,
-                     "--download"], work, cancel, event, "Model setup")
+                     "--download"], work, cancel, event, "Model setup", observer=progress.feed)
+        progress.finish()
     if missing := readiness(profile, root, device):
         raise ScribeError("Setup incomplete: " + ", ".join(missing))
 
@@ -224,11 +230,13 @@ class BatchController:
     def setup(self, profile: Profile, root: Path = ROOT, installer=setup_profile, device: str = "cpu") -> None:
         self._begin("setup")
 
+        def update(value):
+            self.events.put(("log", value.text) if isinstance(value, SetupLog) else ("message", value))
+
         def work():
             success = False
             try:
-                installer(profile, self.cancel,
-                          lambda text: self.events.put(("message", text)), root, device)
+                installer(profile, self.cancel, update, root, device)
                 success = True
             except Cancelled:
                 pass
@@ -254,6 +262,8 @@ class BatchController:
             kind = event[0]
             if kind == "message":
                 self.message = event[1].splitlines()[0] if event[1] else ""
+                self.logs.append(event[1])
+            elif kind == "log":
                 self.logs.append(event[1])
             elif kind == "started":
                 by_id[event[1]].status = "Transcribing"

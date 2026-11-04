@@ -4,6 +4,9 @@ set -eu
 mode=${1:-cpu}
 [ "$#" -le 1 ] || { echo 'Usage: scripts/build-engine.sh cpu|cuda' >&2; exit 2; }
 case "$mode" in cpu|cuda) ;; *) echo 'Usage: scripts/build-engine.sh cpu|cuda' >&2; exit 2 ;; esac
+engine_name=CPU
+if [ "$mode" = cuda ]; then engine_name=CUDA; fi
+printf 'Setup: Checking %s build tools…\n' "$engine_name"
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 pin=d1be6fde11ac6e0407606b4e42fe72d34add8037
 source_dir="$root/.runtime/source"
@@ -83,6 +86,7 @@ if [ "$mode" = cuda ]; then
 fi
 mkdir -p "$root/.runtime"
 if [ ! -d "$source_dir/.git" ]; then
+    printf 'Setup: Downloading engine source…\n'
     git clone --branch v1.9.5 --depth 1 https://github.com/ggml-org/whisper.cpp.git "$source_dir"
 fi
 if [ -n "$(git -C "$source_dir" status --porcelain)" ]; then
@@ -97,15 +101,18 @@ test "$(git -C "$source_dir" rev-parse HEAD)" = "$pin"
 cuda=OFF
 if [ "$mode" = cuda ]; then cuda=ON; fi
 # Architecture overrides remain one quoted CMake list, including in compile-only CI.
+printf 'Setup: Configuring %s engine…\n' "$engine_name"
 cmake -S "$source_dir" -B "$build_dir" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
     -DWHISPER_BUILD_IS_DEV=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF \
     -DWHISPER_CURL=OFF -DGGML_RPC=OFF -DGGML_BACKEND_DL=OFF \
     -DGGML_NATIVE=ON -DGGML_CUDA="$cuda" "$@"
+printf 'Setup: Building %s engine…\n' "$engine_name"
 cmake --build "$build_dir" --config Release --parallel "${SCRIBE_BUILD_JOBS:-4}" --target whisper-cli
 # Compile-only CI has the toolkit's link stubs but no installed NVIDIA driver.
 # Normal desktop setup still executes the engine to verify runtime linkage.
 if [ "${SCRIBE_BUILD_ONLY:-0}" != 1 ]; then
+    printf 'Setup: Checking %s engine…\n' "$engine_name"
     "$build_dir/bin/whisper-cli" --version
 fi
 printf '\nBuilt %s engine at %s/bin/whisper-cli\n' "$mode" "$build_dir"

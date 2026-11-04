@@ -7,6 +7,7 @@ import signal
 from pathlib import Path
 import sys
 import tempfile
+import time
 import urllib.request
 
 # Expected file digests from whisper.cpp v1.9.5 models/README.md.
@@ -19,6 +20,22 @@ MODELS = {
     "tiny.en": "c78c86eb1a8faa21b369bcd33207cc90d64ae9df",
 }
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def byte_size(size):
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024 or unit == "GiB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def report_transfer(size, total, action):
+    if total:
+        percent = min(100, size * 100 // total)
+        detail = f"{percent}% ({byte_size(size)} / {byte_size(total)})"
+    else:
+        detail = f"{byte_size(size)} received"
+    print(f"Setup: {action}: {detail}", flush=True)
 
 
 def digests(path):
@@ -45,6 +62,7 @@ def main():
     expected = MODELS[args.model]
     if target.exists() or target.is_symlink():
         if not target.is_symlink() and target.is_file():
+            print("Setup: Verifying installed model…", flush=True)
             actual, sha256 = digests(target)
             if actual == expected:
                 print(f"Already installed: {target}\nSHA-256: {sha256}")
@@ -56,25 +74,41 @@ def main():
         with os.fdopen(fd, "wb") as out:
             if args.download:
                 url = f"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
-                print(f"Downloading {args.model} from Hugging Face. No audio is involved.", flush=True)
+                print(f"Setup: Connecting to download {args.model}…", flush=True)
                 stream = urllib.request.urlopen(url, timeout=60)
             else:
                 stream = args.from_file.expanduser().open("rb")
             with stream:
-                size, reported = 0, 0
+                if args.download:
+                    try:
+                        total = int(stream.headers.get("Content-Length", "0"))
+                    except (ValueError, TypeError):
+                        total = 0
+                    if not 0 < total <= 4 * 1024**3:
+                        total = 0
+                else:
+                    total = os.fstat(stream.fileno()).st_size
+                action = "Downloading model" if args.download else "Copying model"
+                size = 0
+                reported = time.monotonic()
+                report_transfer(size, total, action)
                 while block := stream.read(1024 * 1024):
                     size += len(block)
                     if size > 4 * 1024**3:
                         raise ValueError("Model exceeds the 4 GiB download limit.")
                     out.write(block)
-                    if size - reported >= 128 * 1024**2:
-                        print(f"Received {size // 1024**2} MiB", flush=True)
-                        reported = size
+                    now = time.monotonic()
+                    if now - reported >= .25:
+                        report_transfer(size, total, action)
+                        reported = now
+                report_transfer(size, total, action)
             out.flush()
             os.fsync(out.fileno())
+        print("Setup: Verifying model…", flush=True)
         actual, sha256 = digests(staged)
         if actual != expected:
             raise ValueError(f"Model integrity check failed: expected upstream SHA-1 {expected}, received {actual}.")
+        print("Setup: Saving model…", flush=True)
         os.link(staged, target)  # no clobber if another setup races us
         # This digest records locally installed bytes; it is not a signature.
         receipt = target.with_suffix(".bin.sha256")
