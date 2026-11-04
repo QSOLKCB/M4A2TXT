@@ -150,6 +150,34 @@ download and select its compiler with `CUDACXX=/path/to/bin/nvcc` or
 toolkit. See the [advanced CUDA setup notes](m4a-scribe/README.md#manual-or-offline-setup)
 for host compiler and architecture overrides.
 
+### Follow setup progress
+
+**Set up CPU** and **Set up GPU** show progress for **Laptop**, **Mid**, and
+**High**. The bar stays at the bottom of the window while setup runs:
+
+- Engine compilation shows its reported build percentage, such as **Building
+  CUDA engine: 76%**. CPU builds use the same display. A single compilation step
+  can take a while, so the percentage can stay unchanged while work continues.
+- Model downloads show bytes received and a percentage when the server provides
+  the total size. If the size is unavailable, the app shows received bytes and an
+  animated bar. This applies to all three preset models.
+- Preparing, configuring, and verifying use an animated bar. An activity spinner
+  and elapsed time stay visible throughout setup. Percentages describe the
+  current stage, not time remaining or overall installation completion.
+
+Click **See Details For Log**, or the **Details** button, to see the live setup
+log. Compiler diagnostics appear there without replacing the progress percentage.
+After a download reaches 100%, the model still needs checksum verification. An
+existing model is verified without downloading it again; an installed engine is
+reused. Wait for **Setup complete** before transcribing. **Cancel** stops setup;
+failed or cancelled setup is not reported as complete.
+
+The terminal build and model installer also print progress. The GUI tracks setup
+started through its own setup button; it does not attach to an independently
+started terminal build. After updating the application, let any current setup
+finish, then close and reopen the app to load the new display. Whisper's existing
+transcription progress display is unchanged.
+
 ## 4. Choose a model
 
 | Desktop preset | Model installer argument | Approximate download |

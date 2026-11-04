@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 
 try:
     import gi
@@ -18,6 +19,7 @@ except (ImportError, ValueError) as exc:
 from . import __version__
 from .core import ROOT, ScribeError
 from .desktop import BatchController, PROFILES, Settings, processor_note, readiness
+from .setup_progress import setup_fraction
 
 
 def button(label, callback, icon=None):
@@ -47,6 +49,9 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.player = None
         self.progress_value = None
         self.last_busy = False
+        self.setup_started = None
+        self.detail_buffers = []
+        self.setup_toast = None
         self.connect("close-request", self.on_close)
 
         self.toasts = Adw.ToastOverlay()
@@ -170,9 +175,20 @@ class ScribeWindow(Adw.ApplicationWindow):
 
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                          margin_top=12, margin_bottom=12, margin_start=22, margin_end=22)
-        self.progress = Gtk.ProgressBar()
+        self.progress_row = Gtk.Box(spacing=10)
+        self.setup_spinner = Gtk.Spinner()
+        self.progress_row.append(self.setup_spinner)
+        self.progress = Gtk.ProgressBar(hexpand=True)
         self.progress.set_visible(False)
-        bottom.append(self.progress)
+        self.progress_row.append(self.progress)
+        self.elapsed = text_label("", "dim-label")
+        self.progress_row.append(self.elapsed)
+        bottom.append(self.progress_row)
+        self.log_hint = button("See Details For Log", lambda _: self.show_details())
+        self.log_hint.add_css_class("flat")
+        self.log_hint.add_css_class("caption")
+        self.log_hint.set_halign(Gtk.Align.START)
+        bottom.append(self.log_hint)
         actions = Gtk.Box(spacing=10)
         bottom.append(actions)
         self.status = text_label("Add audio files to begin.")
@@ -211,7 +227,9 @@ class ScribeWindow(Adw.ApplicationWindow):
         return PROFILES[self.settings.profile]
 
     def toast(self, message):
-        self.toasts.add_toast(Adw.Toast.new(str(message)))
+        toast = Adw.Toast.new(str(message))
+        self.toasts.add_toast(toast)
+        return toast
 
     def save_settings(self):
         try:
@@ -316,6 +334,9 @@ class ScribeWindow(Adw.ApplicationWindow):
     def primary(self):
         if self.controller.busy or self.closing:
             return
+        if self.setup_toast:
+            self.setup_toast.dismiss()
+            self.setup_toast = None
         try:
             if readiness(self.profile, self.root, self.settings.device):
                 self.controller.setup(self.profile, self.root, device=self.settings.device)
@@ -334,6 +355,18 @@ class ScribeWindow(Adw.ApplicationWindow):
 
     def refresh(self):
         busy = self.controller.busy
+        setup = busy and self.controller.operation == "setup"
+        if setup and self.setup_started is None:
+            self.setup_started = time.monotonic()
+            self.status.set_text("Preparing setup…")
+        elif not setup:
+            self.setup_started = None
+        self.progress_row.set_visible(busy)
+        self.setup_spinner.set_visible(setup)
+        self.setup_spinner.set_spinning(setup)
+        self.elapsed.set_visible(setup)
+        self.log_hint.set_visible(setup)
+        self.progress.set_show_text(setup)
         missing = readiness(self.profile, self.root, self.settings.device)
         self.mode_note.set_text(processor_note(self.profile, self.root, self.settings.device))
         self.setup_banner.set_title(f"One-time setup for {self.profile.title} / {self.settings.device.upper()}: up to {self.profile.size} of model data. No audio is uploaded.")
@@ -377,6 +410,10 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.primary_button.set_sensitive(not busy and (bool(missing) or bool(self.controller.pending)))
         self.progress.set_visible(busy)
         if not busy:
+            self.progress_value = None
+            self.progress.set_fraction(0)
+            self.progress.set_text(None)
+            self.elapsed.set_text("")
             self.status.set_text(self.controller.summary or ("Ready when you are." if self.controller.jobs else "Add audio files to begin."))
         self.last_busy = busy
 
@@ -385,20 +422,35 @@ class ScribeWindow(Adw.ApplicationWindow):
         for event in events:
             if event[0] in {"started", "message"}:
                 if event[0] == "message":
-                    self.status.set_text(self.controller.message)
-                    match = re.fullmatch(r"Whisper: (\d+)%", event[1])
-                    self.progress_value = min(.99, int(match[1]) / 100) if match else None
+                    self.status.set_text(event[1].splitlines()[0] if event[1] else "")
+                    if self.controller.operation == "setup":
+                        self.progress_value = setup_fraction(event[1])
+                    else:
+                        match = re.fullmatch(r"Whisper: (\d+)%", event[1])
+                        self.progress_value = min(.99, int(match[1]) / 100) if match else None
                 else:
                     self.progress_value = None
             elif event[0] == "setup-finished" and event[1]:
-                self.toast("Setup complete. Transcription is ready to run offline.")
+                self.setup_toast = self.toast("Setup complete. Transcription is ready to run offline.")
         if events or self.last_busy != self.controller.busy:
             self.refresh()
         if self.controller.busy:
+            if self.controller.operation == "setup":
+                elapsed = max(0, int(time.monotonic() - self.setup_started))
+                self.elapsed.set_text(f"{elapsed // 60}:{elapsed % 60:02d} elapsed")
+                if self.controller.cancel.is_set():
+                    self.progress_value = None
+                    self.status.set_text("Stopping local work before closing…" if self.closing else "Stopping setup…")
+                self.progress.set_text("Stopping…" if self.controller.cancel.is_set() else (
+                    f"{round(self.progress_value * 100)}%" if self.progress_value is not None else "Working…"))
             if self.progress_value is None:
                 self.progress.pulse()
             else:
                 self.progress.set_fraction(self.progress_value)
+        if events and self.detail_buffers:
+            text = self.details_text()
+            for buffer in self.detail_buffers:
+                buffer.set_text(text)
         if self.closing and not self.controller.busy:
             self.poll_id = None
             self.destroy()
@@ -418,7 +470,10 @@ class ScribeWindow(Adw.ApplicationWindow):
         window.set_content(toolbar)
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title=title, subtitle=description))
-        copy = button("Copy text", lambda _: window.get_clipboard().set(text))
+        def copy_text(_button):
+            buffer = view.get_buffer()
+            window.get_clipboard().set(buffer.get_text(*buffer.get_bounds(), True))
+        copy = button("Copy text", copy_text)
         header.pack_start(copy)
         toolbar.add_top_bar(header)
         view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
@@ -428,13 +483,19 @@ class ScribeWindow(Adw.ApplicationWindow):
         scroll.set_child(view)
         toolbar.set_content(scroll)
         window.present()
-        return window, toolbar
+        return window, toolbar, view.get_buffer()
 
-    def show_details(self):
+    def details_text(self):
         text = "\n\n".join(self.controller.logs) or "No errors or operations yet."
         text += f"\n\nM4A2TXT {__version__}\nPreset: {self.profile.title}\nProcessor: {self.settings.device.upper()}\nModel: {self.profile.model}\n{processor_note(self.profile, self.root, self.settings.device)}"
         text += "\n\nFirst-time system packages on Ubuntu:\nsudo apt install python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 ffmpeg git cmake build-essential\n\nThe Set up button downloads the selected model and builds missing local engines. NVIDIA acceleration also needs a compatible driver and CUDA toolkit."
-        return self.text_window("Details", text, "Local setup and diagnostics")[0]
+        return text
+
+    def show_details(self):
+        window, _toolbar, buffer = self.text_window("Details", self.details_text(), "Local setup and diagnostics")
+        self.detail_buffers.append(buffer)
+        window.connect("close-request", lambda _window: self.detail_buffers.remove(buffer) or False)
+        return window
 
     def show_transcript(self, job):
         if job.result is None:
@@ -444,7 +505,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         except (OSError, UnicodeError) as exc:
             self.toast(f"Could not open this transcript: {exc}")
             return None
-        window, toolbar = self.text_window(job.source.name, text, "Machine transcript · saved as plain text")
+        window, toolbar, _buffer = self.text_window(job.source.name, text, "Machine transcript · saved as plain text")
         controls = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=8, margin_bottom=8)
         controls.append(button("Play audio", lambda _: self.play(job.source)))
         controls.append(button("Stop audio", lambda _: self.stop_audio()))
