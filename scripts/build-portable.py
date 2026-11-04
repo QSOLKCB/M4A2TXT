@@ -104,7 +104,7 @@ def main():
                "whisper_commit": WHISPER_PIN, "python": sys.version, "system": platform.platform(),
                "files": {p.relative_to(payload).as_posix(): digest(p) for p in sorted(payload.rglob("*")) if p.is_file()}}
     (payload / "BUILD-RECEIPT.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-    if sys.platform == "darwin":
+    if os.name != "nt":
         archive = destination / (payload.name + ".tar.gz")
         with tarfile.open(archive, "w:gz") as out:
             out.add(payload, arcname=payload.name)

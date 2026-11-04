@@ -36,17 +36,23 @@ jobs:
           cache-dependency-path: scripts/packaging-requirements.txt
       - name: Install pinned packaging tools
         run: python -m pip install --require-hashes -r scripts/packaging-requirements.txt
-      - name: Install Windows native compiler tools
+      - name: Prepare the runner's existing MSYS2 toolchain
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: git make diffutils mingw-w64-x86_64-gcc
+        shell: pwsh
+        env:
+          MSYSTEM: MINGW64
+        run: |
+          & C:\msys64\usr\bin\bash.exe -lc 'pacman -Syu --noconfirm'
+          if ($LASTEXITCODE -ne 0) { throw "MSYS2 update failed" }
+          & C:\msys64\usr\bin\bash.exe -lc 'pacman -S --noconfirm --needed git make diffutils mingw-w64-x86_64-gcc'
+          if ($LASTEXITCODE -ne 0) { throw "Native compiler installation failed" }
       - name: Record Windows compiler version
         if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: gcc --version > .native-compiler.txt
+        shell: C:\msys64\usr\bin\bash.exe --noprofile --norc -e -o pipefail {0}
+        run: |
+          export PATH=/mingw64/bin:/usr/bin:$PATH
+          gcc --version > .native-compiler.txt
+          pacman -Q >> .native-compiler.txt
       - name: Identify native build inputs
         id: identity
         shell: bash
@@ -76,8 +82,10 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.identity.outputs.key }}
       - name: Build FFmpeg on Windows
         if: runner.os == 'Windows' && steps.tools.outputs.cache-hit != 'true'
-        shell: msys2 {0}
-        run: sh scripts/build-portable-ffmpeg.sh
+        shell: C:\msys64\usr\bin\bash.exe --noprofile --norc -e -o pipefail {0}
+        run: |
+          export PATH=/mingw64/bin:/usr/bin:$PATH
+          sh scripts/build-portable-ffmpeg.sh
       - name: Build FFmpeg on macOS
         if: runner.os != 'Windows' && steps.tools.outputs.cache-hit != 'true'
         run: sh scripts/build-portable-ffmpeg.sh
