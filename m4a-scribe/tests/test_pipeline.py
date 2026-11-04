@@ -6,6 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from audio_fixture import encode_fixture, fixture_bytes
 from scribe.core import Cancelled, Options, ScribeError, publish_text, run_process, transcribe
 
 TEXT = " Uh, no—no, that's what I said.\nTwo plus two is five. Café.\n"
+BAD_WAV = b"RIFF" + struct.pack("<I", 36) + b"WAVEJUNK" + struct.pack("<I", 1000) + b"\0" * 24
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
@@ -127,6 +129,32 @@ out.write_bytes(TEXT.encode('utf-8'))
     def test_corrupt_m4a_leaves_no_transcript(self):
         self.input.write_bytes(b"not audio")
         with self.assertRaises(ScribeError):
+            transcribe(self.input, self.options)
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_cli_wav_chunk_bounds_error_does_not_abort_later_batch_files(self):
+        bad = self.root / "bad.wav"
+        bad.write_bytes(BAD_WAV)
+        result = subprocess.run([
+            sys.executable, "-m", "scribe", "--model", str(self.model),
+            "--device", "cpu", "--cpu-engine", str(self.cpu),
+            "--output-dir", str(self.out), str(bad), str(self.input),
+        ], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("bad.wav:", result.stderr)
+        expected = self.out / (self.input.stem + ".txt")
+        self.assertEqual(expected.read_bytes(), TEXT.encode("utf-8"))
+        self.assertEqual(result.stdout.splitlines(), [str(expected)])
+        self.assertEqual(list(self.out.iterdir()), [expected])
+        self.assertEqual(bad.read_bytes(), BAD_WAV)
+
+    def test_decoder_wav_chunk_bounds_error_is_a_normal_file_error(self):
+        def malformed_output(argv, work, cancel, event, label):
+            self.assertEqual(label, "Audio decoder")
+            Path(argv[-1]).write_bytes(BAD_WAV)
+        with mock.patch("scribe.core.run_process", side_effect=malformed_output), \
+                self.assertRaisesRegex(ScribeError, "valid WAV"):
             transcribe(self.input, self.options)
         self.assertEqual(list(self.out.iterdir()), [])
 

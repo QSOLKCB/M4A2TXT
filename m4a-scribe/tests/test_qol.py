@@ -50,6 +50,15 @@ class QualityOfLifeTests(unittest.TestCase):
         decode.assert_called_once()
         self.assertEqual(result.name, 'decoded.wav')
 
+    def test_progress_callback_runtime_error_is_not_treated_as_bad_wav(self):
+        def broken_callback(_message):
+            raise RuntimeError('callback fixture')
+        with mock.patch('scribe.core.decode_audio') as decode:
+            with self.assertRaisesRegex(RuntimeError, 'callback fixture'):
+                prepare_audio(self.source, self.root / 'decoded.wav', self.options,
+                              threading.Event(), broken_callback)
+        decode.assert_not_called()
+
     def test_truncated_and_overlong_pcm_do_not_reach_engine(self):
         original = self.source.read_bytes()
         self.source.write_bytes(original[:-2])

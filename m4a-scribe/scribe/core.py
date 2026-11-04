@@ -229,7 +229,7 @@ def decode_audio(source: Path, wav: Path, options: Options,
                 raise ScribeError("No audio samples were decoded.")
             if frames > options.max_seconds * 16000:
                 raise ScribeError(f"Audio exceeds the {options.max_seconds / 3600:g}-hour preview limit; nothing was transcribed.")
-    except (wave.Error, EOFError) as exc:
+    except (wave.Error, EOFError, RuntimeError) as exc:
         raise ScribeError("The decoder did not produce a valid WAV file.") from exc
 
 
@@ -239,7 +239,8 @@ def prepare_audio(source: Path, wav: Path, options: Options,
     if source.suffix.lower() == ".wav":
         try:
             with wave.open(str(source), "rb") as audio:
-                if (audio.getnchannels(), audio.getframerate(), audio.getsampwidth(), audio.getcomptype()) == (1, 16000, 2, "NONE"):
+                compatible = (audio.getnchannels(), audio.getframerate(), audio.getsampwidth(), audio.getcomptype()) == (1, 16000, 2, "NONE")
+                if compatible:
                     frames = audio.getnframes()
                     if not 0 < frames <= options.max_seconds * 16000:
                         raise ScribeError("PCM audio is empty or exceeds the duration limit.")
@@ -250,10 +251,12 @@ def prepare_audio(source: Path, wav: Path, options: Options,
                         if not chunk:
                             raise ScribeError("The PCM WAV file is truncated.")
                         remaining -= len(chunk)
-                    event("Using verified 16 kHz mono PCM audio directly…")
-                    return source
-        except (wave.Error, EOFError):
-            pass  # Let FFmpeg handle other WAV encodings with its strict checks.
+        except (wave.Error, EOFError, RuntimeError):
+            pass  # Let the strict decoder validate unsupported or malformed WAV layouts.
+        else:
+            if compatible:
+                event("Using verified 16 kHz mono PCM audio directly…")
+                return source
     decode_audio(source, wav, options, cancel, event)
     return wav
 
