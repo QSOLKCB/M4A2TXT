@@ -53,6 +53,8 @@ def main():
         executable = payload / ('M4A2TXT.app/Contents/MacOS/M4A2TXT' if sys.platform == 'darwin' else 'M4A2TXT/M4A2TXT.exe' if os.name == 'nt' else 'M4A2TXT/M4A2TXT')
         run([executable, '--version'])
         run([executable, '--cli', '--help'])
+        if sys.platform in {'win32', 'darwin'}:
+            run([executable, '--check'])
         models = work / 'local models'
         # The explicit installer hashes a cached model again before use.
         cache = ROOT / '.portable-build/test-models'

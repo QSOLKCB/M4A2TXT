@@ -67,7 +67,7 @@ an explicit custom tap, not a Homebrew/core formula or a published bottle.
 on pull requests, main updates, tags and manual runs. It does not publish a
 release automatically. Native builds avoid treating PyInstaller as a cross
 compiler. Dependencies used only for packaging are pinned with hashes in
-`scripts/packaging-requirements.txt`. Build on each target OS with Python 3.12,
+`scripts/packaging-requirements.txt`. Build on each target OS with Python 3.13 (CI pins 3.13.17),
 CMake and a native C/C++ compiler (MSYS2/MinGW plus make for FFmpeg on Windows):
 
 ```sh

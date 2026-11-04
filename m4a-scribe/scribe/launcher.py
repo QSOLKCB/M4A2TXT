@@ -38,7 +38,11 @@ def check() -> int:
     try:
         if sys.platform in {"win32", "darwin"}:
             import tkinter
-            print(f"Tk {tkinter.TkVersion}")
+            try:
+                tcl_version = tkinter.Tcl().eval("info patchlevel")
+            except tkinter.TclError as exc:
+                raise RuntimeError(f"Tcl/Tk runtime is incomplete: {exc}") from exc
+            print(f"Tk {tkinter.TkVersion} / Tcl {tcl_version}")
         else:
             from .gui import Adw, Gtk
             gtk = (Gtk.get_major_version(), Gtk.get_minor_version())
@@ -46,7 +50,7 @@ def check() -> int:
             print(f"GTK {gtk[0]}.{gtk[1]} / libadwaita {adw[0]}.{adw[1]}")
             if gtk < (4, 10) or adw < (1, 4):
                 missing.append("GTK 4.10+ and libadwaita 1.4+")
-    except (ImportError, ValueError) as exc:
+    except (ImportError, ValueError, RuntimeError) as exc:
         missing.append(str(exc))
     if not shutil.which(ffmpeg_path()):
         missing.append("FFmpeg")

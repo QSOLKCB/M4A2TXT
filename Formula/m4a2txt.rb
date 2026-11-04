@@ -19,10 +19,10 @@ class M4a2txt < Formula
     libexec.install "m4a-scribe", "m4a2txt"
     resource("whisper").stage do
       system "cmake", "-S", ".", "-B", "build", *std_cmake_args,
-             "-DBUILD_SHARED_LIBS=OFF", "-DWHISPER_BUILD_TESTS=OFF",
+             "-DBUILD_SHARED_LIBS=OFF", "-DWHISPER_BUILD_TESTS=OFF", "-DWHISPER_BUILD_IS_DEV=OFF",
              "-DWHISPER_BUILD_SERVER=OFF", "-DWHISPER_CURL=OFF",
              "-DGGML_RPC=OFF", "-DGGML_BACKEND_DL=OFF", "-DGGML_METAL=OFF",
-             "-DGGML_CUDA=OFF", "-DGGML_NATIVE=OFF"
+             "-DGGML_CUDA=OFF", "-DGGML_NATIVE=OFF", "-DGGML_OPENMP=OFF"
       system "cmake", "--build", "build", "--target", "whisper-cli", "--parallel", ENV.make_jobs
       (libexec/"m4a-scribe/bin").install "build/bin/whisper-cli"
       (pkgshare/"licenses").install "LICENSE" => "whisper-LICENSE"
