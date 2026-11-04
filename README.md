@@ -2,7 +2,7 @@
 
 Local M4A-to-text conversion using your own CPU or GPU. **M4A Scribe 0.3.0-preview** provides a GTK 4 / libadwaita desktop with **Laptop / Mid / High** model presets, an independent **CPU / GPU** toggle, and a batch CLI backed by Whisper.
 
-The source lives in [`m4a-scribe/`](m4a-scribe/). Start with its [setup and usage guide](m4a-scribe/README.md).
+The source lives in [`m4a-scribe/`](m4a-scribe/). Start with the [installation guide](INSTALL.md) for CPU or NVIDIA GPU setup, then see the [usage guide](m4a-scribe/README.md).
 
 ![Native GTK desktop with Laptop, Mid, and High presets](docs/gtk-preview.png)
 

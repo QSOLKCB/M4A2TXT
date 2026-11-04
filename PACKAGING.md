@@ -2,6 +2,8 @@
 
 ## Start
 
+For step-by-step dependency, CPU, and NVIDIA GPU setup, see [INSTALL.md](INSTALL.md).
+
 Extract the archive, open a terminal in its folder, and run:
 
 ```sh
