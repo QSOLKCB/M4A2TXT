@@ -109,6 +109,8 @@ class ModelProgressTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("model_installer", path)
         self.installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.installer)
+        original_models = self.installer.MODELS.copy()
+        self.addCleanup(lambda: self.installer.MODELS.update(original_models))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

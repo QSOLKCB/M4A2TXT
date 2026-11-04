@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import re
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ except (ImportError, ValueError) as exc:
 
 from . import __version__
 from .core import ROOT, ScribeError
-from .desktop import BatchController, PROFILES, Settings, processor_note, readiness
+from .desktop import BatchController, PROFILES, Settings, processor_note, readiness, selected_profile
 from .setup_progress import setup_fraction
 
 
@@ -135,6 +136,26 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.setup_banner = Adw.Banner(title="", use_markup=False)
         content.append(self.setup_banner)
 
+        options = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        options.add_css_class("boxed-list")
+        self.task_row = Adw.ComboRow(title="Task", model=Gtk.StringList.new(["Transcribe original speech", "Translate speech into English"]))
+        self.task_row.set_selected(int(self.settings.task == "translate"))
+        self.language_row = Adw.EntryRow(title="Source language code (en, fr, ja, auto…)")
+        self.language_row.set_text(self.settings.language)
+        self.format_row = Adw.ComboRow(title="Save as", model=Gtk.StringList.new(["Plain text (.txt)", "SubRip subtitles (.srt)", "WebVTT captions (.vtt)"]))
+        self.format_row.set_selected(("txt", "srt", "vtt").index(self.settings.output_format))
+        self.large_text_row = Adw.SwitchRow(title="Larger transcript text")
+        self.large_text_row.set_active(self.settings.large_text)
+        for row in (self.task_row, self.language_row, self.format_row, self.large_text_row):
+            options.append(row)
+        self.task_row.connect("notify::selected", self.options_changed)
+        self.language_row.connect("changed", self.options_changed)
+        self.format_row.connect("notify::selected", self.options_changed)
+        self.large_text_row.connect("notify::active", self.options_changed)
+        content.append(options)
+        self.task_note = text_label("", "caption")
+        content.append(self.task_note)
+
         queue_header = Gtk.Box(spacing=12)
         self.queue_heading = text_label("Audio files", "heading")
         self.queue_heading.set_hexpand(True)
@@ -197,6 +218,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         actions.append(self.status)
         self.open_button = button(None, lambda _: self.open_folder(), "folder-open-symbolic")
         self.open_button.set_tooltip_text("Open transcript folder")
+        self.open_button.update_property([Gtk.AccessibleProperty.LABEL], ["Open transcript folder"])
         actions.append(self.open_button)
         self.cancel_button = button("Cancel", lambda _: self.cancel_work())
         actions.append(self.cancel_button)
@@ -212,6 +234,8 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.drop_target = target
         for name, callback, keys in (("add", self.choose_audio, ["<Primary>o"]),
                                       ("transcribe", self.primary, ["<Primary>Return"]),
+                                      ("cancel", self.cancel_work, ["Escape"]),
+                                      ("folder", self.open_folder, ["<Primary>e"]),
                                       ("close", self.close, ["<Primary>q"])):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _v, cb=callback: cb())
@@ -224,7 +248,15 @@ class ScribeWindow(Adw.ApplicationWindow):
 
     @property
     def profile(self):
-        return PROFILES[self.settings.profile]
+        return selected_profile(self.settings.profile, self.settings.task, self.settings.language)
+
+    def options_changed(self, *_args):
+        self.settings.task = ("transcribe", "translate")[self.task_row.get_selected()]
+        self.settings.language = self.language_row.get_text().strip().lower()
+        self.settings.output_format = ("txt", "srt", "vtt")[self.format_row.get_selected()]
+        self.settings.large_text = self.large_text_row.get_active()
+        self.save_settings()
+        self.refresh()
 
     def toast(self, message):
         toast = Adw.Toast.new(str(message))
@@ -342,7 +374,9 @@ class ScribeWindow(Adw.ApplicationWindow):
                 self.controller.setup(self.profile, self.root, device=self.settings.device)
             else:
                 self.settings.output.mkdir(parents=True, exist_ok=True)
-                self.controller.start(self.profile.options(self.settings.output, self.root, self.settings.device))
+                self.controller.start(replace(self.profile.options(self.settings.output, self.root, self.settings.device),
+                                              language=self.settings.language, task=self.settings.task,
+                                              output_format=self.settings.output_format))
             self.progress_value = None
             self.save_settings()
             self.refresh()
@@ -369,6 +403,9 @@ class ScribeWindow(Adw.ApplicationWindow):
         self.progress.set_show_text(setup)
         missing = readiness(self.profile, self.root, self.settings.device)
         self.mode_note.set_text(processor_note(self.profile, self.root, self.settings.device))
+        self.task_note.set_text(f"Model: {self.profile.model}. " + (
+            "Translation produces English text; saved filenames include .en. Review against the source audio."
+            if self.settings.task == "translate" else "Speech is kept in its source language. Timestamps in subtitle files come from the recognizer."))
         self.setup_banner.set_title(f"One-time setup for {self.profile.title} / {self.settings.device.upper()}: up to {self.profile.size} of model data. No audio is uploaded.")
         self.setup_banner.set_revealed(bool(missing) and not busy)
         self.output_row.set_subtitle(str(self.settings.output))
@@ -388,6 +425,7 @@ class ScribeWindow(Adw.ApplicationWindow):
                 view.set_valign(Gtk.Align.CENTER)
                 remove = button(None, lambda _b, i=job.id: self.remove_job(i), "list-remove-symbolic")
                 remove.set_tooltip_text("Remove " + job.source.name)
+                remove.update_property([Gtk.AccessibleProperty.LABEL], ["Remove " + job.source.name])
                 remove.set_valign(Gtk.Align.CENTER)
                 row.add_suffix(view)
                 row.add_suffix(remove)
@@ -400,13 +438,15 @@ class ScribeWindow(Adw.ApplicationWindow):
             remove.set_sensitive(not busy)
         for choice in (*self.profile_buttons.values(), *self.device_buttons.values()):
             choice.set_sensitive(not busy)
-        for widget in (self.add_button, self.folder_button, self.clear_button):
+        for widget in (self.add_button, self.folder_button, self.clear_button,
+                       self.task_row, self.language_row, self.format_row):
             widget.set_sensitive(not busy)
         self.clear_button.set_sensitive(not busy and bool(self.controller.jobs))
         self.cancel_button.set_visible(busy)
         self.open_button.set_sensitive(self.settings.output.is_dir())
         self.primary_button.set_label("Setting up…" if busy and self.controller.operation == "setup" else (
-            "Transcribing…" if busy else f"Set up {self.settings.device.upper()}" if missing else "Transcribe"))
+            "Processing…" if busy else f"Set up {self.settings.device.upper()}" if missing else
+            "Translate" if self.settings.task == "translate" else "Transcribe"))
         self.primary_button.set_sensitive(not busy and (bool(missing) or bool(self.controller.pending)))
         self.progress.set_visible(busy)
         if not busy:
@@ -476,8 +516,13 @@ class ScribeWindow(Adw.ApplicationWindow):
         copy = button("Copy text", copy_text)
         header.pack_start(copy)
         toolbar.add_top_bar(header)
-        view = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+        view = Gtk.TextView(editable=False, cursor_visible=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
                             top_margin=18, bottom_margin=18, left_margin=18, right_margin=18)
+        view.update_property([Gtk.AccessibleProperty.LABEL], [title])
+        if self.settings.large_text:
+            provider = Gtk.CssProvider()
+            provider.load_from_data(b"textview { font-size: 20px; }")
+            view.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         view.get_buffer().set_text(text)
         scroll = Gtk.ScrolledWindow()
         scroll.set_child(view)
@@ -505,7 +550,7 @@ class ScribeWindow(Adw.ApplicationWindow):
         except (OSError, UnicodeError) as exc:
             self.toast(f"Could not open this transcript: {exc}")
             return None
-        window, toolbar, _buffer = self.text_window(job.source.name, text, "Machine transcript · saved as plain text")
+        window, toolbar, _buffer = self.text_window(job.source.name, text, f"Machine output · {job.result.output.name}")
         controls = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=8, margin_bottom=8)
         controls.append(button("Play audio", lambda _: self.play(job.source)))
         controls.append(button("Stop audio", lambda _: self.stop_audio()))

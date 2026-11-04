@@ -8,6 +8,7 @@ from . import __version__
 from .__main__ import main as app_main
 from .core import ROOT
 from .desktop import PROFILES, executable, readiness
+from .paths import engine_path, ffmpeg_path
 
 
 HELP = """M4A2TXT — local audio to plain text
@@ -24,6 +25,8 @@ to install the selected local model and engine.
 --check    Check local dependencies without downloading or changing anything.
 --cli      Use the batch CLI; add --help for its options.
 --version  Print the application version.
+--install-model MODEL --download  Explicitly download and verify a local model.
+--portable-gui  Use the portable desktop (also selected on Windows/macOS).
 
 If desktop dependencies are missing, run ./install-deps.sh once on Ubuntu.
 """
@@ -33,19 +36,23 @@ def check() -> int:
     print(f"M4A2TXT {__version__}")
     missing = []
     try:
-        from .gui import Adw, Gtk
-        gtk = (Gtk.get_major_version(), Gtk.get_minor_version())
-        adw = (Adw.get_major_version(), Adw.get_minor_version())
-        print(f"GTK {gtk[0]}.{gtk[1]} / libadwaita {adw[0]}.{adw[1]}")
-        if gtk < (4, 10) or adw < (1, 4):
-            missing.append("GTK 4.10+ and libadwaita 1.4+")
+        if sys.platform in {"win32", "darwin"}:
+            import tkinter
+            print(f"Tk {tkinter.TkVersion}")
+        else:
+            from .gui import Adw, Gtk
+            gtk = (Gtk.get_major_version(), Gtk.get_minor_version())
+            adw = (Adw.get_major_version(), Adw.get_minor_version())
+            print(f"GTK {gtk[0]}.{gtk[1]} / libadwaita {adw[0]}.{adw[1]}")
+            if gtk < (4, 10) or adw < (1, 4):
+                missing.append("GTK 4.10+ and libadwaita 1.4+")
     except (ImportError, ValueError) as exc:
         missing.append(str(exc))
-    if not shutil.which("ffmpeg"):
+    if not shutil.which(ffmpeg_path()):
         missing.append("FFmpeg")
     else:
         print("FFmpeg: available")
-    if not executable(ROOT / ".runtime/cpu/bin/whisper-cli"):
+    if not executable(engine_path("cpu")):
         for tool in ("git", "cmake", "c++"):
             if not shutil.which(tool):
                 missing.append(tool + " (needed for first-time engine setup)")
@@ -71,6 +78,9 @@ def check() -> int:
 
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["--install-model"]:
+        from .models import command_line
+        return command_line(args[1:])
     if args in (["--help"], ["-h"]):
         print(HELP)
         return 0

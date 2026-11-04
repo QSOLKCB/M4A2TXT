@@ -10,7 +10,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = {"m4a2txt", "install-deps.sh", "LICENSE", "PACKAGING.md", "INSTALL.md"}
+ROOT_FILES = {"m4a2txt", "install-deps.sh", "LICENSE", "PACKAGING.md", "INSTALL.md", "docs/PORTABLE.md"}
 APP_FILES = {"LICENSE", "README.md", "DESIGN.md", "VALIDATION.md", "SHA256SUMS", "run-scribe.sh"}
 
 

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "m4a-scribe"
 CACHE = ROOT / ".compiler-cache"
 EVIDENCE = ROOT / ".cache-evidence"
+ENGINE_CACHE = ROOT / ".engine-cache"
 CONFIG = """direct_mode = false
 compiler_check = content
 sloppiness =
@@ -149,11 +150,11 @@ def canaries():
     print("C++ and CUDA fresh/cached parity, invalidation, failure and corruption canaries passed", flush=True)
 
 
-def builds(restored):
+def builds(restored, count=3):
     env = environment(CACHE)
     records = []
     engine = APP / ".runtime/cuda/bin/whisper-cli"
-    for index in range(3):
+    for index in range(count):
         if index:
             subprocess.run(["cmake", "--build", str(APP / ".runtime/cuda"), "--target", "clean"], env=env, check=True)
             if engine.exists():
@@ -174,18 +175,57 @@ def builds(restored):
     if encoded(identity()) != (EVIDENCE / "toolchain.json").read_text():
         raise RuntimeError("CI toolchain/configuration changed during validation")
     subprocess.run(["ccache", "--cleanup"], env=env, check=True)
-    median = statistics.median(record["seconds"] for record in records[1:])
+    median = statistics.median(record["seconds"] for record in records[1:]) if count > 1 else None
     result = {"restored": restored, "warm_median_seconds": median,
-              "first_to_warm_ratio": records[0]["seconds"] / median,
+              "first_to_warm_ratio": records[0]["seconds"] / median if median else None,
               "scope": "Compiler/configure/link stage; excludes toolkit install and external cache transport; no GPU inference",
               "records": records}
     (EVIDENCE / "result.json").write_text(encoded(result))
     print(encoded(result), flush=True)
 
 
+def save_engine():
+    """Cache only the linked static engine and the configuration it was checked with."""
+    ENGINE_CACHE.mkdir(exist_ok=True)
+    names = {"whisper-cli": "bin/whisper-cli", "CMakeCache.txt": "CMakeCache.txt"}
+    for name, relative in names.items():
+        shutil.copy2(APP / ".runtime/cuda" / relative, ENGINE_CACHE / name)
+    receipt = {"schema": 1, "identity": sha(EVIDENCE / "toolchain.json"),
+               "files": {name: sha(ENGINE_CACHE / name) for name in names}}
+    (ENGINE_CACHE / "receipt.json").write_text(encoded(receipt))
+
+
+def restore_engine():
+    """Reject incomplete, corrupt, symlinked or mismatched cache entries."""
+    try:
+        if any((ENGINE_CACHE / name).is_symlink() for name in ("receipt.json", "whisper-cli", "CMakeCache.txt")):
+            return False
+        receipt = json.loads((ENGINE_CACHE / "receipt.json").read_text())
+        if receipt.get("schema") != 1 or receipt.get("identity") != sha(EVIDENCE / "toolchain.json"):
+            return False
+        files = receipt.get("files")
+        if not isinstance(files, dict) or set(files) != {"whisper-cli", "CMakeCache.txt"}:
+            return False
+        if any(sha(ENGINE_CACHE / name) != digest for name, digest in files.items()):
+            return False
+        if not os.access(ENGINE_CACHE / "whisper-cli", os.X_OK):
+            return False
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+    folder = APP / ".runtime/cuda"
+    (folder / "bin").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ENGINE_CACHE / "whisper-cli", folder / "bin/whisper-cli")
+    shutil.copy2(ENGINE_CACHE / "CMakeCache.txt", folder / "CMakeCache.txt")
+    (EVIDENCE / "result.json").write_text(encoded({
+        "engine_cache": "verified", "engine_sha256": sha(folder / "bin/whisper-cli"),
+        "scope": "Exact toolchain/configuration and file digests verified; no new compilation or GPU inference"}))
+    print("Reused the validated engine for this exact toolchain/configuration", flush=True)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare", "verify"))
+    parser.add_argument("mode", choices=("prepare", "verify", "build"))
     parser.add_argument("--restored", action="store_true")
     args = parser.parse_args()
     EVIDENCE.mkdir(exist_ok=True)
@@ -200,10 +240,16 @@ def main():
         if path := os.environ.get("GITHUB_OUTPUT"):
             with open(path, "a") as stream:
                 stream.write(f"key={key}\n")
+                stream.write(f"engine_key=cuda-engine-v1-{hashlib.sha256(manifest.encode()).hexdigest()}\n")
         print(key)
-    else:
+    elif args.mode == "verify":
         canaries()
         builds(args.restored)
+        save_engine()
+    elif not restore_engine():
+        print("No valid exact engine cache; building once with compiler reuse", flush=True)
+        builds(args.restored, count=1)
+        save_engine()
 
 
 if __name__ == "__main__":

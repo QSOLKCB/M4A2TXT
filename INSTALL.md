@@ -1,5 +1,7 @@
 # Install M4A2TXT
 
+For **Windows, macOS or Homebrew**, use the [native installation guide](docs/PORTABLE.md). The steps below cover the Linux GTK edition.
+
 M4A2TXT runs Whisper locally through a GTK desktop or a batch command line. Setup
 installs native dependencies, builds an engine, and downloads the model you choose.
 After setup, transcription works offline.

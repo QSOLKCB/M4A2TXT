@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import sys
 import tempfile
@@ -15,6 +16,7 @@ from typing import Callable
 
 from .core import Cancelled, FORMATS, Options, ROOT, Result, ScribeError, run_process, transcribe
 from .setup_progress import SetupLog, SetupOutput
+from .paths import FROZEN, RESOURCE_ROOT, engine_path, ffmpeg_path, user_data_dir
 
 
 @dataclass(frozen=True)
@@ -31,8 +33,8 @@ class Profile:
             raise ScribeError("Choose CPU or GPU processing.")
         return Options(root / "models" / f"ggml-{self.model}.bin", output,
                        device=device, threads=min(self.threads, os.cpu_count() or 1),
-                       cpu_engine=root / ".runtime/cpu/bin/whisper-cli",
-                       gpu_engine=root / ".runtime/cuda/bin/whisper-cli")
+                       cpu_engine=engine_path("cpu", root),
+                       gpu_engine=engine_path("cuda", root))
 
 
 PROFILES = {
@@ -42,6 +44,13 @@ PROFILES = {
 }
 
 
+def selected_profile(key: str, task: str = "transcribe", language: str = "en") -> Profile:
+    profile = PROFILES[key]
+    if (key == "laptop" and (task == "translate" or language != "en")) or (key == "mid" and task == "translate"):
+        return replace(profile, model="small", size="466 MiB", description="Multilingual model")
+    return profile
+
+
 def executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
@@ -49,7 +58,7 @@ def executable(path: Path) -> bool:
 def readiness(profile: Profile, root: Path = ROOT, device: str = "cpu") -> list[str]:
     options = profile.options(Path.home(), root, device)
     missing = []
-    if not shutil.which("ffmpeg"):
+    if not shutil.which(ffmpeg_path()):
         missing.append("FFmpeg")
     engine = options.gpu_engine if device == "gpu" else options.cpu_engine
     if not executable(engine):
@@ -70,7 +79,7 @@ def processor_note(profile: Profile, root: Path = ROOT, device: str = "cpu") -> 
 def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[str | SetupLog], None],
                   root: Path = ROOT, device: str = "cpu") -> None:
     """Explicit setup only. Normal transcription never calls this function."""
-    if not shutil.which("ffmpeg"):
+    if not shutil.which(ffmpeg_path()):
         raise ScribeError("Install FFmpeg and the system packages listed in the setup guide first.")
     options = profile.options(Path.home(), root, device)
     engine = options.gpu_engine if device == "gpu" else options.cpu_engine
@@ -78,6 +87,8 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
     # The build script discovers project-local toolkits and validates the GPU,
     # compiler and host headers before cloning or downloading a model.
     if needs_build:
+        if FROZEN or sys.platform in {"win32", "darwin"}:
+            raise ScribeError("The bundled CPU engine is missing. Re-extract the complete portable package; CUDA setup is available in the Linux edition.")
         missing = [name for name in ("git", "cmake", "c++") if not shutil.which(name)]
         if missing:
             raise ScribeError("Install the setup packages first. Missing: " + ", ".join(missing))
@@ -87,13 +98,15 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
             mode = "cuda" if device == "gpu" else "cpu"
             event(f"Preparing the local {mode.upper()} engine…")
             progress = SetupOutput(event, mode.upper())
-            run_process(["sh", str(root / "scripts/build-engine.sh"), mode], work, cancel, event,
+            run_process(["sh", str(RESOURCE_ROOT / "scripts/build-engine.sh"), mode], work, cancel, event,
                         "Engine setup", observer=progress.feed)
             progress.finish()
         event(f"Installing the {profile.title} model ({profile.size})…")
         progress = SetupOutput(event)
-        run_process([sys.executable, str(root / "scripts/install-model.py"), profile.model,
-                     "--download"], work, cancel, event, "Model setup", observer=progress.feed)
+        command = ([sys.executable, "--install-model"] if FROZEN else
+                   [sys.executable, str(RESOURCE_ROOT / "scripts/install-model.py")])
+        run_process([*command, profile.model, "--download", "--directory", str(root / "models")],
+                    work, cancel, event, "Model setup", observer=progress.feed)
         progress.finish()
     if missing := readiness(profile, root, device):
         raise ScribeError("Setup incomplete: " + ", ".join(missing))
@@ -101,9 +114,14 @@ def setup_profile(profile: Profile, cancel: threading.Event, event: Callable[[st
 
 class Settings:
     def __init__(self, path: Path | None = None, default_output: Path | None = None):
-        self.path = path or Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "m4a-scribe/settings.json"
+        self.path = path or ((user_data_dir() / "settings.json") if sys.platform in {"win32", "darwin"} else
+                            Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "m4a-scribe/settings.json")
         self.profile = "laptop"
         self.device = "cpu"
+        self.task = "transcribe"
+        self.language = "en"
+        self.output_format = "txt"
+        self.large_text = False
         self.output = default_output or Path.home() / "Documents/Transcripts"
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -112,6 +130,14 @@ class Settings:
                     self.profile = data["profile"]
                 if data.get("device") in ("cpu", "gpu"):
                     self.device = data["device"]
+                if data.get("task") in ("transcribe", "translate"):
+                    self.task = data["task"]
+                if data.get("output_format") in ("txt", "srt", "vtt"):
+                    self.output_format = data["output_format"]
+                language = data.get("language")
+                if isinstance(language, str) and re.fullmatch(r"[a-z]{2,3}|auto", language):
+                    self.language = language
+                self.large_text = data.get("large_text") is True
                 output = data.get("output")
                 if isinstance(output, str) and output and Path(output).is_absolute():
                     self.output = Path(output)
@@ -123,7 +149,9 @@ class Settings:
         fd, name = tempfile.mkstemp(prefix=".settings-", dir=self.path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as out:
-                json.dump({"profile": self.profile, "device": self.device, "output": str(self.output)}, out, indent=2)
+                json.dump({"profile": self.profile, "device": self.device, "output": str(self.output),
+                           "task": self.task, "language": self.language, "output_format": self.output_format,
+                           "large_text": self.large_text}, out, indent=2)
                 out.write("\n")
             os.replace(name, self.path)
         finally:

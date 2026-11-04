@@ -73,6 +73,20 @@ def main():
         assert settings.device == "cpu"
         assert win.primary_button.get_label() == "Set up CPU"
         screenshot("01-empty-setup.png")
+        win.task_row.set_selected(1)
+        win.language_row.set_text("fr")
+        win.format_row.set_selected(2)
+        win.large_text_row.set_active(True)
+        assert win.profile.model == "small"
+        assert settings.task == "translate" and settings.output_format == "vtt"
+        assert Settings(settings.path).large_text
+        win.profile_buttons["mid"].set_active(True)
+        assert win.profile.model == "small"  # Turbo must never handle translation.
+        win.task_row.set_selected(0)
+        win.language_row.set_text("en")
+        win.format_row.set_selected(0)
+        win.large_text_row.set_active(False)
+        win.profile_buttons["laptop"].set_active(True)
 
         # Keep fixture setup running while checking actual widgets at each stage.
         # No network, compiler, or model is involved in these UI checks.

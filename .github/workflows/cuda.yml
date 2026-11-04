@@ -3,13 +3,13 @@ name: CUDA engine checks
 on:
   pull_request:
     paths:
-      - 'm4a-scribe/**'
+      - 'm4a-scribe/scripts/build-engine.sh'
       - '.github/workflows/cuda.yml'
       - 'scripts/cuda-cache-check.py'
   push:
     branches: [main]
     paths:
-      - 'm4a-scribe/**'
+      - 'm4a-scribe/scripts/build-engine.sh'
       - '.github/workflows/cuda.yml'
       - 'scripts/cuda-cache-check.py'
   workflow_dispatch:
@@ -19,7 +19,11 @@ on:
         type: boolean
         default: false
       force_cold:
-        description: 'Skip compiler-cache restoration for a fresh first build'
+        description: 'Skip engine and compiler caches for a fresh build'
+        type: boolean
+        default: false
+      full_parity:
+        description: 'Run fresh/cached canaries and all three clean builds'
         type: boolean
         default: false
 
@@ -65,14 +69,24 @@ jobs:
         with:
           path: .compiler-cache
           key: ${{ steps.identity.outputs.key }}
-      - name: Verify cache parity and build pinned CUDA engine three times
+      - name: Restore validated linked engine
+        if: ${{ !inputs.force_cold && !inputs.full_parity }}
+        id: engine
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .engine-cache
+          key: ${{ steps.identity.outputs.engine_key }}
+      - name: Reuse validated engine or build once (full parity on request)
         env:
           RESTORED: ${{ steps.cache.outputs.cache-hit }}
+          FULL_PARITY: ${{ inputs.full_parity }}
         run: |
+          mode=build
+          if [ "$FULL_PARITY" = true ]; then mode=verify; fi
           if [ "$RESTORED" = true ]; then
-            python3 scripts/cuda-cache-check.py verify --restored
+            python3 scripts/cuda-cache-check.py "$mode" --restored
           else
-            python3 scripts/cuda-cache-check.py verify
+            python3 scripts/cuda-cache-check.py "$mode"
           fi
       - name: Confirm CUDA build configuration
         working-directory: m4a-scribe
@@ -90,6 +104,12 @@ jobs:
         with:
           path: .compiler-cache
           key: ${{ steps.identity.outputs.key }}
+      - name: Save validated linked engine
+        if: ${{ success() && steps.engine.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: .engine-cache
+          key: ${{ steps.identity.outputs.engine_key }}
       - name: Preserve timings, parity results and build diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

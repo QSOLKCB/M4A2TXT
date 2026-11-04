@@ -1,5 +1,7 @@
 # M4A2TXT — Linux desktop package
 
+Windows/macOS application bundles and the macOS Homebrew formula are documented in [docs/PORTABLE.md](docs/PORTABLE.md) in the repository. This document describes the Linux source package.
+
 ## Start
 
 For step-by-step dependency, CPU, and NVIDIA GPU setup, see [INSTALL.md](INSTALL.md).

@@ -1,5 +1,8 @@
 /dist/
 /.compiler-cache/
 /.cache-evidence/
+/.engine-cache/
+/build/
+/.portable-build/
 __pycache__/
 *.pyc

@@ -2,6 +2,8 @@
 
 Local M4A-to-text conversion using your own CPU or GPU. **M4A Scribe 0.3.0-preview** provides a GTK 4 / libadwaita desktop with **Laptop / Mid / High** model presets, an independent **CPU / GPU** toggle, and a batch CLI backed by Whisper.
 
+Current development adds **English translation, TXT/SRT/VTT output, keyboard and reading controls, native Windows/macOS packages, and Homebrew installation**. See the [portable and Homebrew guide](docs/PORTABLE.md). Native artifacts appear only after their workflow passes.
+
 The source lives in [`m4a-scribe/`](m4a-scribe/). Start with the [installation guide](INSTALL.md) for CPU or NVIDIA GPU setup, then see the [usage guide](m4a-scribe/README.md).
 
 ![Native GTK desktop with Laptop, Mid, and High presets](docs/gtk-preview.png)
@@ -24,7 +26,35 @@ GPU mode requires a compatible NVIDIA driver and CUDA toolkit for setup. It stop
 
 On Ubuntu 24.04+, run `./install-deps.sh` once if the native dependencies are missing. For an RTX 50-series GPU, `./install-deps.sh --cuda` installs a verified project-local CUDA 13.2 toolkit without changing the driver; then use **Set up GPU** or run `sh m4a-scribe/scripts/build-engine.sh cuda`. `./m4a2txt --check` checks your local setup without downloading anything. See [package instructions](PACKAGING.md) for extraction, verification, and rebuilding the deterministic archive. The package uses your operating system's Python, GTK and FFmpeg; it installs the selected model and builds its engine during explicit first-time setup.
 
-After setup, transcription runs locally without a cloud service, chat interface, or HTTP server. Model installation is a separate, explicit operation. The application exports plain UTF-8 `.txt` files without adding summaries or rewriting the recognizer's text.
+After setup, transcription runs locally without a cloud service, chat interface, or HTTP server. Model installation is a separate, explicit operation. Choose UTF-8 `.txt`, `.srt` subtitles or `.vtt` captions. Output bytes are preserved as returned by the recognizer. Translation is explicit, produces English, and uses `.en` in the output filename; it is never enabled by default.
+
+## Translation, captions and faster repeat builds
+
+Choose **Task**, **Source language**, and **Save as** in the desktop. `auto` detects
+the source language. The app selects a multilingual model when necessary; Mid
+uses `small` for translation because Turbo is not trained for that task.
+
+```sh
+./m4a2txt --install-model small --download
+./m4a2txt --cli --model m4a-scribe/models/ggml-small.bin \
+  --device cpu --language fr --task translate --output-format srt recording.m4a
+```
+
+Use **Larger transcript text**, keyboard navigation and Copy text in the reader.
+Escape cancels work; Ctrl+E opens the output folder in GTK. Existing output files
+remain untouched. Translation and subtitle timing should be checked against the
+source recording.
+
+Compatible 16 kHz mono PCM WAV files reuse the private verified snapshot without
+starting FFmpeg. Model installation calculates both checksums while streaming,
+avoiding a second full read of newly downloaded weights. Neither change reduces
+model quality settings or skips verification of existing models.
+
+Routine CUDA CI restores an exact, validated engine when possible; otherwise it
+builds once using ccache. The manual `full_parity` input retains all three clean
+builds and cache canaries, and `force_cold` skips both caches. Unrelated UI edits
+no longer trigger a CUDA recompilation. Cache hits do not claim fresh compilation
+or GPU execution. See the [cache contract](docs/OPT-ADAPTATION.md).
 
 ## Source and evidence
 
